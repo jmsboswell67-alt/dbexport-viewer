@@ -12,7 +12,9 @@ references/unknowns_inventory.json
 references/MetasysObjectHelp.pdf
 references/openapi.json
 references/pdf_classes_raw.json
+references/pdf_attributes_raw.json
 references/new_class_names_block.js
+references/SCTToolHelp.pdf
 
 # Scratch / test artifacts
 .tmp_*.py
