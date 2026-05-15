@@ -9,6 +9,10 @@ references/dictionary_from_commands.json
 references/dict_js_block.js
 references/unknowns_report.md
 references/unknowns_inventory.json
+references/MetasysObjectHelp.pdf
+references/openapi.json
+references/pdf_classes_raw.json
+references/new_class_names_block.js
 
 # Scratch / test artifacts
 .tmp_*.py
