@@ -1335,16 +1335,32 @@ const PRESERVED_KINDS = new Set([
   "schedules","graphics","site","generic","category",
 ]);
 
+// Detect "opaque" segment labels — purely numeric, or "<digits>_<digits>" CCT
+// internal IDs. Returns true if the user would benefit from seeing the object's
+// Description instead of the raw segment.
+function isOpaqueSegment(s) {
+  if (!s) return true;
+  if (/^\d+$/.test(s)) return true;          // "200015"
+  if (/^\d+[_\-.]\d+$/.test(s)) return true;  // "307_2", "8-1", "1.2"
+  if (/^\$\d+$/.test(s)) return true;         // "$4687" (CCT logic sub-instance)
+  return false;
+}
+
 function computeCounts(node) {
   let count = node.obj ? 1 : 0;
   for (const [_, child] of node.children) count += computeCounts(child);
   node.totalCount = count;
 
-  // If the node has an attached object with a non-empty Description,
-  // use that as the displayed label and stash the original segment as a hint.
-  // This dramatically improves readability for .caf trees where segments
-  // are opaque "<classid>_<objectid>" tokens.
-  if (node.obj && !node._labelFromDescription) {
+  // For .caf files, segments are opaque "<classid>_<objectid>" tokens like
+  // "307_2" or "956_4123" — substituting the object's Description gives much
+  // better tree readability ("SA Bus", "Discharge Air Temperature").
+  //
+  // For .dbexport files, segments are already meaningful names like
+  // "DACC-NAE35-BCC" or "FC-1.FEC-3.OA-T", and the Description is just
+  // supplementary info — swapping it in loses the device name and can collapse
+  // distinct items (e.g., two NAEs serving the same building both show as
+  // "Mary Miller Center"). Only swap when the segment is OPAQUE.
+  if (node.obj && !node._labelFromDescription && isOpaqueSegment(node.label)) {
     const desc = decodeValue(node.obj.properties["28"] || "");
     if (desc && desc.length > 0 && desc !== "(empty)" && desc !== node.label) {
       node._segmentLabel = node.label;
