@@ -1024,6 +1024,7 @@ const PROP_NAMES = {
   758: "Online Point Delay",
   782: "Feedback Attribute",
   806: "Net N2 Address",
+  808: "N2 Point Address",
   813: "Default Value",
   815: "Samples Lost",
   816: "Repository Status",
@@ -2261,7 +2262,10 @@ const PRIORITY_PROP_ORDER = [
   12,    // Comment
   103,   // Reliability
   131,   // Reliability (BACnet)
-  75,    // Object Identifier
+  75,    // Object Identifier (Metasys-internal DB id)
+  32589, // BACnet Instance Number (point number on FEC/BACnet controllers)
+  808,   // N2 Point Address (point number on N2 controllers)
+  806,   // Net N2 Address (device address on the N2 trunk)
   117,   // Units
   79,    // Object Type
 ];
