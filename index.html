@@ -593,6 +593,7 @@
     <button data-mode="diff" disabled>Diff</button>
     <button data-mode="unbound" disabled>Unbound Refs</button>
     <button data-mode="graphics" disabled>Graphics</button>
+    <button data-mode="logic" disabled>Logic</button>
   </div>
 </header>
 
@@ -1514,6 +1515,7 @@ const state = {
   unboundPivotValue: null,
   graphicsPivot: "byGraphic",
   graphicsSelection: null,
+  logicSelection: null,
 };
 
 // ============ XML parsing ============
@@ -1827,6 +1829,8 @@ function updateModeAvailability() {
   document.querySelector('[data-mode="diff"]').disabled = !bothArchives;
   document.querySelector('[data-mode="unbound"]').disabled = !hasUnbound;
   document.querySelector('[data-mode="graphics"]').disabled = !hasGraphics;
+  // Logic mode needs the zip to look for Programming/System Programs files inside
+  document.querySelector('[data-mode="logic"]').disabled = !hasGraphics;
 }
 
 // ============ Tree rendering ============
@@ -1845,6 +1849,10 @@ function renderTree() {
 
   if (state.mode === "graphics") {
     return renderGraphicsTree(root);
+  }
+
+  if (state.mode === "logic") {
+    return renderLogicTree(root);
   }
 
   if (state.mode === "diff" && state.archives[0] && state.archives[1]) {
@@ -2023,6 +2031,11 @@ function renderDetail() {
   if (state.mode === "graphics") {
     if (exportWrap) exportWrap.style.display = "none";
     return renderGraphicsDetail(body, crumb, classSel, objSearch);
+  }
+
+  if (state.mode === "logic") {
+    if (exportWrap) exportWrap.style.display = "none";
+    return renderLogicDetail(body, crumb, classSel, objSearch);
   }
 
   const arc = state.archives[state.selectedSlot] || state.archives[0];
@@ -3437,6 +3450,405 @@ function renderPointDetail(body, an, pointRef) {
 function csvCell(v) {
   const s = String(v == null ? "" : v);
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+// ============ Logic / Programming visualizer ============
+//
+// Programming/*.xml and System Programs/*.xml files inside an engine folder
+// contain TSEGraph (Tom Sawyer Graph Editor Toolkit) XML wrapped in a
+// Base64Zip envelope. The format encodes:
+//
+//   <topology>
+//     <node>NODEID<type>T</type><text>LABEL</text>
+//       <geometry><x>...</x><y>...</y><width>...</width><height>...</height></geometry>
+//       <shape>...</shape>
+//       <connector>PORTID...<attrNum>ATTR</attrNum></connector>  (each port on the node)
+//       ...
+//     </node>
+//     <edge>EDGEID
+//       <source>NODEID</source><target>NODEID</target>
+//       <geometry>
+//         <sourceConnector>PORTID</sourceConnector>
+//         <targetConnector>PORTID</targetConnector>
+//         <point><x>X</x><y>Y</y></point>...   (routing waypoints)
+//       </geometry>
+//     </edge>
+//   </topology>
+//
+// This is enough to render a real logic diagram: nodes as boxes at their
+// (x,y,w,h) coordinates, edges as polylines through the waypoints.
+
+function parseTSEGraph(xml) {
+  const nodes = [];
+  // Each <node>ID<type>T</type>[<text>L</text>]<geometry>... — capture geometry and body.
+  // The body may contain nested <connector> elements (ports).
+  const nodeRe = /<node>(\d+)<type>([^<]*)<\/type>(?:<text>([^<]*)<\/text>)?<geometry><visible>true<\/visible><x>([\-\d.eE+]+)<\/x><y>([\-\d.eE+]+)<\/y><width>([\-\d.eE+]+)<\/width><height>([\-\d.eE+]+)<\/height>([\s\S]*?)<\/node>/g;
+  let m;
+  while ((m = nodeRe.exec(xml)) !== null) {
+    const id = m[1];
+    const type = m[2];
+    const text = m[3] || "";
+    const x = parseFloat(m[4]);
+    const y = parseFloat(m[5]);
+    const w = parseFloat(m[6]);
+    const h = parseFloat(m[7]);
+    const body = m[8];
+
+    // Extract ports — only the ones at the TOP level of the node body (not
+    // those nested inside edges or inner nodes, which shouldn't happen here).
+    const ports = [];
+    const portRe = /<connector>(\d+)<geometry>([\s\S]*?)<\/geometry>(?:<attrNum>(-?\d+)<\/attrNum>)?(?:<attrNumReal>(-?\d+)<\/attrNumReal>)?/g;
+    let pm;
+    while ((pm = portRe.exec(body)) !== null) {
+      const portGeom = pm[2];
+      // Magnified-X/Y are relative offsets from node center (range -0.5 to 0.5
+      // typically), useful for placing the port on the node edge.
+      const mxMatch = portGeom.match(/<magnifiedX>([\-\d.eE+]+)<\/magnifiedX>/);
+      const myMatch = portGeom.match(/<magnifiedY>([\-\d.eE+]+)<\/magnifiedY>/);
+      ports.push({
+        id: pm[1],
+        attrNum: pm[3] ? parseInt(pm[3], 10) : null,
+        magnifiedX: mxMatch ? parseFloat(mxMatch[1]) : 0,
+        magnifiedY: myMatch ? parseFloat(myMatch[1]) : 0,
+      });
+    }
+
+    // Extract attribute reference (which point/attribute this node represents)
+    // Reference comes from sibling <reference>...</reference> at node level OR via the first port's attrNum
+    const refMatch = body.match(/<reference>([^<]+)<\/reference>/);
+    const reference = refMatch ? refMatch[1] : "";
+
+    nodes.push({ id, type, text, x, y, w, h, ports, reference });
+  }
+
+  // Edges — top-level <edge> elements
+  const edges = [];
+  const edgeRe = /<edge>(\d+)<source>(\d+)<\/source><target>(\d+)<\/target>([\s\S]*?)<\/edge>/g;
+  while ((m = edgeRe.exec(xml)) !== null) {
+    const id = m[1];
+    const source = m[2];
+    const target = m[3];
+    const body = m[4];
+
+    const srcPortM = body.match(/<sourceConnector>(\d+)<\/sourceConnector>/);
+    const tgtPortM = body.match(/<targetConnector>(\d+)<\/targetConnector>/);
+    // Waypoints — collect all <point><x>X</x><y>Y</y></point> in the edge geometry
+    const waypoints = [];
+    const wpRe = /<point><x>([\-\d.eE+]+)<\/x><y>([\-\d.eE+]+)<\/y><\/point>/g;
+    let wm;
+    while ((wm = wpRe.exec(body)) !== null) {
+      waypoints.push({ x: parseFloat(wm[1]), y: parseFloat(wm[2]) });
+    }
+    const refMatch = body.match(/<reference>([^<]+)<\/reference>/);
+
+    edges.push({
+      id, source, target,
+      sourcePort: srcPortM ? srcPortM[1] : null,
+      targetPort: tgtPortM ? tgtPortM[1] : null,
+      waypoints,
+      reference: refMatch ? refMatch[1] : "",
+    });
+  }
+
+  // Compute viewBox from node bounds
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of nodes) {
+    minX = Math.min(minX, n.x);
+    minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + n.w);
+    maxY = Math.max(maxY, n.y + n.h);
+  }
+  for (const e of edges) {
+    for (const p of e.waypoints) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+  }
+  const pad = 40;
+  const viewBox = nodes.length
+    ? { x: minX - pad, y: minY - pad, w: (maxX - minX) + 2 * pad, h: (maxY - minY) + 2 * pad }
+    : null;
+
+  return { nodes, edges, viewBox };
+}
+
+function renderLogicSvg(parsed) {
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "width: 100%; height: 600px; overflow: auto; background: #FAFAF6; border: 1px solid var(--line); border-radius: var(--radius);";
+
+  if (!parsed.viewBox) {
+    wrap.innerHTML = `<div class="empty"><div class="small">No renderable nodes in this logic.</div></div>`;
+    return wrap;
+  }
+
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", `${parsed.viewBox.x} ${parsed.viewBox.y} ${parsed.viewBox.w} ${parsed.viewBox.h}`);
+  // Scale to fit width, preserve aspect ratio
+  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  svg.style.cssText = "width: 100%; height: 100%; display: block; cursor: default;";
+
+  // Edges first (so they go under nodes)
+  for (const e of parsed.edges) {
+    if (e.waypoints.length < 2) continue;
+    const poly = document.createElementNS(SVG_NS, "polyline");
+    poly.setAttribute("points", e.waypoints.map(p => `${p.x},${p.y}`).join(" "));
+    poly.setAttribute("stroke", "#5A584F");
+    poly.setAttribute("stroke-width", "1.5");
+    poly.setAttribute("fill", "none");
+    poly.setAttribute("stroke-linejoin", "round");
+    poly.setAttribute("data-edge-id", e.id);
+    // Arrow at the target end
+    const last = e.waypoints[e.waypoints.length - 1];
+    const prev = e.waypoints[e.waypoints.length - 2];
+    poly.style.markerEnd = "url(#logicArrow)";
+    svg.appendChild(poly);
+  }
+
+  // Arrow marker
+  const defs = document.createElementNS(SVG_NS, "defs");
+  defs.innerHTML = `<marker id="logicArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="#5A584F" />
+  </marker>`;
+  svg.appendChild(defs);
+
+  // Nodes
+  for (const n of parsed.nodes) {
+    const g = document.createElementNS(SVG_NS, "g");
+    g.setAttribute("data-node-id", n.id);
+
+    const rect = document.createElementNS(SVG_NS, "rect");
+    rect.setAttribute("x", n.x);
+    rect.setAttribute("y", n.y);
+    rect.setAttribute("width", n.w);
+    rect.setAttribute("height", n.h);
+    rect.setAttribute("fill", "#FFFFFF");
+    rect.setAttribute("stroke", "#B57633");
+    rect.setAttribute("stroke-width", "1.2");
+    rect.setAttribute("rx", "3");
+    g.appendChild(rect);
+
+    // Ports as small circles on the node edges
+    for (const p of n.ports) {
+      // magnifiedX/Y are typically in [-0.5, 0.5] indicating the port's
+      // position as a fraction from the node center. Map to actual coords.
+      const cx = n.x + n.w / 2 + p.magnifiedX * n.w;
+      const cy = n.y + n.h / 2 + p.magnifiedY * n.h;
+      const circle = document.createElementNS(SVG_NS, "circle");
+      circle.setAttribute("cx", cx);
+      circle.setAttribute("cy", cy);
+      circle.setAttribute("r", "2");
+      circle.setAttribute("fill", "#B57633");
+      g.appendChild(circle);
+    }
+
+    // Label — fit text inside the node
+    if (n.text) {
+      const text = document.createElementNS(SVG_NS, "text");
+      text.setAttribute("x", n.x + n.w / 2);
+      text.setAttribute("y", n.y + n.h / 2);
+      text.setAttribute("text-anchor", "middle");
+      text.setAttribute("dominant-baseline", "middle");
+      text.setAttribute("font-size", Math.min(10, n.h / 2.5));
+      text.setAttribute("font-family", "ui-sans-serif, system-ui, sans-serif");
+      text.setAttribute("fill", "#1E1E1C");
+      text.style.pointerEvents = "none";
+      text.textContent = n.text.length > 24 ? n.text.slice(0, 22) + "…" : n.text;
+      g.appendChild(text);
+
+      // Tooltip
+      const title = document.createElementNS(SVG_NS, "title");
+      title.textContent = `${n.text}\nNode ${n.id} (type ${n.type})\n${n.ports.length} port${n.ports.length === 1 ? "" : "s"}`;
+      g.appendChild(title);
+    }
+
+    svg.appendChild(g);
+  }
+
+  wrap.appendChild(svg);
+  return wrap;
+}
+
+async function getLogicArchive() {
+  for (const slot of [state.selectedSlot, 0, 1]) {
+    const a = state.archives[slot];
+    if (a && a._zip && a.kind !== "unbound") return a;
+  }
+  return null;
+}
+
+async function indexLogicFiles(arc) {
+  if (arc._logicFiles) return arc._logicFiles;
+  if (!arc._zip) {
+    arc._logicFiles = [];
+    return [];
+  }
+  const files = [];
+  arc._zip.forEach((path, entry) => {
+    if (entry.dir) return;
+    if (!path.endsWith(".xml")) return;
+    const fname = path.replace(/^.*[\\\/]/, "");
+    if (fname.startsWith("Programming.") || fname.startsWith("System Programs.")) {
+      // Engine folder is everything before the last separator
+      const engine = path.replace(/[\\\/][^\\\/]*$/, "");
+      files.push({ path, fname, engine, name: fname.replace(/\.xml$/i, "") });
+    }
+  });
+  files.sort((a, b) => a.engine.localeCompare(b.engine) || a.name.localeCompare(b.name));
+  arc._logicFiles = files;
+  return files;
+}
+
+async function loadLogicFile(arc, path) {
+  const cache = arc._logicCache || (arc._logicCache = new Map());
+  if (cache.has(path)) return cache.get(path);
+  const entry = arc._zip.file(path);
+  if (!entry) return null;
+  let text = await entry.async("string");
+  const m = text.match(/<Base64Zip[^>]*>([\s\S]*?)<\/Base64Zip>/);
+  if (m) {
+    try { text = await gunzipText(m[1].trim()); }
+    catch (e) { return null; }
+  }
+  const parsed = parseTSEGraph(text);
+  cache.set(path, parsed);
+  return parsed;
+}
+
+function renderLogicTree(root) {
+  const arc = state.archives[state.selectedSlot] || state.archives[0] || state.archives[1];
+  if (!arc || !arc._zip) return;
+
+  if (!arc._logicFiles) {
+    const el = document.createElement("div");
+    el.className = "tree-node";
+    el.style.padding = "12px 16px";
+    el.style.color = "var(--ink-dim)";
+    el.textContent = "Indexing logic files…";
+    root.appendChild(el);
+    indexLogicFiles(arc).then(() => { renderTree(); renderDetail(); });
+    return;
+  }
+
+  const q = (state.treeFilter || "").toLowerCase();
+  addSectionTitle(root, arc.name);
+
+  // Group by engine
+  const byEngine = new Map();
+  for (const f of arc._logicFiles) {
+    if (q && !f.name.toLowerCase().includes(q)) continue;
+    const engineName = f.engine.replace(/^.*[\\\/]/, "").replace(/^[A-Z][\w\-]*ADX[-_]?\d+/, "");
+    if (!byEngine.has(engineName)) byEngine.set(engineName, []);
+    byEngine.get(engineName).push(f);
+  }
+
+  for (const [eng, files] of byEngine) {
+    const engEl = document.createElement("div");
+    engEl.className = "tree-node engine";
+    engEl.style.paddingLeft = "8px";
+    engEl.innerHTML = `<span class="chevron">▾</span><span class="kind-icon">◉</span><span class="name"></span><span class="count">${files.length}</span>`;
+    engEl.querySelector(".name").textContent = eng || "(root)";
+    root.appendChild(engEl);
+    for (const f of files) {
+      const el = document.createElement("div");
+      el.className = "tree-node" + (state.logicSelection === f.path ? " selected" : "");
+      el.style.paddingLeft = "28px";
+      el.innerHTML = `<span class="chevron"></span><span class="kind-icon">λ</span><span class="name"></span>`;
+      el.querySelector(".name").textContent = f.name;
+      el.title = f.path;
+      el.addEventListener("click", () => {
+        state.logicSelection = f.path;
+        renderTree();
+        renderDetail();
+      });
+      root.appendChild(el);
+    }
+  }
+}
+
+async function renderLogicDetail(body, crumb, classSel, objSearch) {
+  classSel.style.display = "none";
+  objSearch.style.display = "none";
+  const exportWrap = document.querySelector(".export-wrap");
+  if (exportWrap) exportWrap.style.display = "none";
+
+  const arc = state.archives[state.selectedSlot] || state.archives[0] || state.archives[1];
+  if (!arc || !arc._zip) {
+    crumb.textContent = "Load a .dbexport (or .caf) to begin.";
+    body.innerHTML = `<div class="empty"><div class="big">No archive loaded</div></div>`;
+    return;
+  }
+
+  if (!state.logicSelection) {
+    crumb.innerHTML = `<strong>${escapeHtml(arc.name)}</strong>`;
+    const intro = document.createElement("div");
+    intro.className = "obj-detail";
+    intro.innerHTML = `<h2 style="font-family: var(--sans); word-break: normal;">Logic / Programming viewer</h2>
+      <p style="color: var(--ink-soft); max-width: 800px;">Select a Programming or System Programs file from the left to render its CCT logic as a live SVG diagram. Nodes are placed at their original CCT canvas coordinates; edges show the routing CCT used. Hover any node for its type and port count.</p>
+      <p style="color: var(--ink-soft); max-width: 800px;">This is the foundation for a multi-session arc toward full CCT-style rendering. Future sessions add block-type-specific symbols, point-binding values inline, and proper port placement on node edges. For now it's a faithful layout, just stylized as boxes.</p>`;
+    body.appendChild(intro);
+    return;
+  }
+
+  crumb.innerHTML = `<strong>${escapeHtml(arc.name)}</strong> / <strong>${escapeHtml(state.logicSelection.replace(/^.*[\\\/]/, "").replace(/\.xml$/, ""))}</strong>`;
+
+  body.innerHTML = `<div class="loading">Decoding logic file</div>`;
+  let parsed;
+  try {
+    parsed = await loadLogicFile(arc, state.logicSelection);
+  } catch (e) {
+    console.error(e);
+    body.innerHTML = `<div class="empty"><div class="big">Decode error</div><div class="small">${escapeHtml(e.message)}</div></div>`;
+    return;
+  }
+  if (!parsed) {
+    body.innerHTML = `<div class="empty"><div class="small">Could not parse this logic file.</div></div>`;
+    return;
+  }
+
+  body.innerHTML = "";
+
+  // Header metadata
+  const header = document.createElement("div");
+  header.className = "obj-detail";
+  header.innerHTML = `<h2 style="font-family: var(--sans); word-break: normal;">λ ${escapeHtml(state.logicSelection.replace(/^.*[\\\/]/, "").replace(/\.xml$/, ""))}</h2>
+    <div class="meta">
+      <span>Nodes: <strong>${parsed.nodes.length}</strong></span>
+      <span>Edges: <strong>${parsed.edges.length}</strong></span>
+      <span>Distinct node types: <strong>${new Set(parsed.nodes.map(n => n.type)).size}</strong></span>
+      <span>Canvas: <strong>${parsed.viewBox ? `${Math.round(parsed.viewBox.w)} × ${Math.round(parsed.viewBox.h)}` : "n/a"}</strong></span>
+    </div>`;
+  body.appendChild(header);
+
+  // SVG diagram
+  body.appendChild(renderLogicSvg(parsed));
+
+  // Node inventory table below
+  const tbl = document.createElement("div");
+  tbl.className = "obj-detail";
+  tbl.style.marginTop = "20px";
+  tbl.innerHTML = `<h3 style="margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft);">Nodes (${parsed.nodes.length})</h3>`;
+  const t = document.createElement("table");
+  t.className = "objs";
+  t.innerHTML = `<thead><tr><th>ID</th><th>Type</th><th>Label</th><th>Position</th><th>Size</th><th>Ports</th></tr></thead>`;
+  const tbody = document.createElement("tbody");
+  for (const n of parsed.nodes.slice(0, 200)) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td class="cid">${escapeHtml(n.id)}</td>
+      <td class="cid">${escapeHtml(n.type)}</td>
+      <td class="ref"><span class="leaf">${escapeHtml(n.text || "—")}</span></td>
+      <td class="cid">${Math.round(n.x)}, ${Math.round(n.y)}</td>
+      <td class="cid">${Math.round(n.w)} × ${Math.round(n.h)}</td>
+      <td class="cid" style="text-align:right;">${n.ports.length}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+  t.appendChild(tbody);
+  tbl.appendChild(t);
+  body.appendChild(tbl);
 }
 
 function renderDiffDetail(body, crumb, classSel, objSearch) {

@@ -192,6 +192,113 @@ After all the harvesting in this session, three sources would actually crack ope
 
 For graphics rendering specifically, the highest-leverage move would be to write a binding-extractor: parse decoded XAML to list every Metasys object attribute referenced by every graphic. That alone would be a useful audit feature without needing to render anything.
 
+### v0.5.0 — Logic / Programming visualizer foundation (2026-05-14) ✅
+
+Multi-session arc toward full CCT-style rendering. This session delivered the
+foundation: TSEGraph parser + SVG layout render of nodes and edges.
+
+**Format discovery:**
+
+Programming/*.xml and System Programs/*.xml files (inside engine folders in a
+`.dbexport`) and `.caf` files all use the same **TSEGraph (Tom Sawyer Graph)**
+XML format, wrapped in a Base64Zip envelope. The structure:
+
+```
+<topology>
+  <node>NODEID<type>T</type><text>LABEL</text>
+    <geometry>...<x>X</x><y>Y</y><width>W</width><height>H</height>...</geometry>
+    <shape>com.tomsawyer.drawing.TSPolygonShape...</shape>
+    <connector>PORTID<geometry>...<magnifiedX/Y>...</geometry><attrNum>N</attrNum></connector>
+    ...
+  </node>
+  <edge>EDGEID
+    <source>SRC_NODE</source><target>TGT_NODE</target>
+    <geometry>
+      <sourceConnector>SRC_PORT</sourceConnector>
+      <targetConnector>TGT_PORT</targetConnector>
+      <point><x>X</x><y>Y</y></point>...   (routing waypoints)
+    </geometry>
+    <reference>FQR</reference>
+    <sourceAttr>ATTR_ID</sourceAttr>
+  </edge>
+</topology>
+```
+
+Key insight: TSEGraph uses `<connector>` as a *port* (input/output anchor on a
+node), and `<edge>` as the actual edge between nodes. The edge geometry
+contains routing waypoints (CCT's exact line path), so we render the same
+shape the user would see in CCT.
+
+**This session delivers:**
+- `parseTSEGraph(xml)` — returns `{ nodes, edges, viewBox }` with full geometry
+- 5th mode: **Logic**, enabled whenever an archive with `_zip` is loaded
+- Sidebar lists all Programming/System Programs files grouped by engine
+- Click a file → indexed, decoded, parsed, rendered as live SVG
+- Header shows nodes/edges/types/canvas-size summary
+- Below the diagram, a node inventory table (id, type, label, position, size, port count)
+
+**Verified against the DACC archive:**
+- 20 Programming files indexed
+- AHU-7-1: 18 nodes, 16 edges, canvas 796×595 — rendered cleanly
+- Nodes like "Span", "Input Ref", numeric constants ("5", "55"), state constants ("On") at their original CCT positions
+- Edge waypoints traced verbatim from the CCT XML
+
+**Roadmap to full CCT fidelity (future sessions):**
+
+### v0.5.1 — Pan/zoom + viewport controls
+- Scroll-wheel zoom centered on cursor
+- Click-drag to pan
+- "Fit to screen" / "1:1" / "Reset" buttons
+- Mini-map for very large logic files
+
+### v0.5.2 — Block-type-specific symbols
+- Currently all nodes render as identical orange-stroked rectangles. CCT uses
+  different shapes per block type (PID = rounded rectangle, math operators =
+  circle with operator symbol, state generators = diamond, etc.).
+- Block type identification — needs to extract from `<shape>` field (e.g. the
+  shape's <points> polygon defines AND/OR gate triangles, etc.) and/or from
+  the node's `<reference>` pattern (e.g. `Programming.X.$NNNN` cid in the path
+  tells us PID vs Math vs Compare).
+- Build a symbol catalog: maybe 30-40 standard CCT block types, each as an
+  SVG `<symbol>` definition.
+
+### v0.5.3 — Port-on-edge placement
+- Ports currently render as small circles centered at the node center plus
+  the `magnifiedX/Y` offset. This puts them inside the node rather than ON
+  the edge.
+- Use magnifiedX/Y to place ports at the correct edge (top/right/bottom/left)
+  with proper input/output side conventions (inputs left, outputs right).
+
+### v0.5.4 — Point binding overlay
+- For nodes whose `<reference>` resolves to a Metasys point, fetch the point's
+  Description and Present Value (from the parent archive's archive.xml).
+- Show "Description: Discharge Air Temperature" + current value next to each
+  input/output reference block.
+- This is the big "what does this logic actually DO?" feature — turns abstract
+  boxes into named semantics.
+
+### v0.5.5 — Edge routing + arrowheads
+- Current edges go straight through waypoints. CCT uses orthogonal routing
+  with corner rounding. Need to smooth corners.
+- Add arrowhead at target end (currently the SVG marker is defined but the
+  inline assignment isn't quite right).
+- Color edges by data type (boolean vs analog vs enum) based on `sourceAttr`.
+
+### v0.5.6 — Apply to `.caf` files too
+- The .caf inner XML uses the same TSEGraph format. Adapt the Logic mode to
+  also render .caf payloads as logic diagrams when a .caf is loaded directly.
+
+### v0.6 — Older XML graphics (TSEGraph format too)
+- Graphics.<Building>.<Name>.xml in the ADX device folder uses TSEGraph with
+  additional <backgroundImageData> (an inline gzip+Base64 SVG) and richer
+  TSPolygonShape definitions for the HVAC equipment.
+- Once v0.5.4 lands, we can render these as overlays with the bound points
+  shown inline.
+
+### v0.7 — XAML graphics
+- Different format entirely (WPF/Silverlight, not TSEGraph). Would need a
+  separate parser + a WPF→SVG translation layer. Much bigger lift.
+
 ### v0.3.7 — Unbound References Explorer (2026-05-14) ✅
 
 The killer signal-test feature. SCT's standard workflow for fixing unbound references is one-click-per-row through thousands of items. This makes it a bulk operation.
