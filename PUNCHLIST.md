@@ -159,6 +159,39 @@ Two features triggered by the 2022 forum thread ("Reading .caf files from Metasy
 - The 7,538 number is *higher* than the unbound-refs CSV reported (6,348) because SCT deduplicates the report at one level; our transform catches every occurrence in the archive.
 - The full workflow — drop archive, drop unbound CSV, click one button, download fixed archive — takes about 30 seconds. The SCT equivalent is reportedly thousands of manual clicks.
 
+### Documentation review — dry holes (2026-05-14)
+
+Reviewed three more JCI PDFs the user pulled from Knowledge Exchange:
+
+**CCT Help PDF** (54.7 MB / 2058 pages)
+- Hoped: would have class IDs for the 30+ unknown CCT logic-block classes (526, 528, 555, 556, 561, 568, 658-660 etc.)
+- Reality: every page is by-NAME, never by-numeric-ID. The CCT Help describes attributes/objects by their semantic name but never enumerates the class ID lookup. The big class ID table only lives in the *SMP* Help (page 23-30, already harvested).
+- **Net new dictionary entries: 0**
+- Useful as a user-facing reference for what each logic block DOES, but doesn't help close the dictionary gap.
+
+**GGT Help PDF** (6.4 MB / 496 pages)
+- Hoped: XAML schema for the newer `.xaml` graphics format
+- Reality: procedural UI guide. Confirms several useful facts (XAML files are WPF-compatible, Bindings connect graphic elements to Metasys attributes, GEL is the symbol library) but doesn't document the actual XML schema or symbol library inventory.
+- **Net new dictionary entries: 0**
+- Useful for a future graphics renderer: tells us what to look for (Binding markup extensions, GEL symbols).
+
+**Metasys UI Help PDF** (31.2 MB / 729 pages)
+- Hoped: maybe an enum set reference or new attribute IDs from the web UI
+- Reality: web UI procedural guide. "Enum Set" mentions are about UI controls, not data. "Attribute ID" mentions are unrelated context (identity provider attributes).
+- **Net new dictionary entries: 0**
+
+### What remains genuinely unmined
+
+After all the harvesting in this session, three sources would actually crack open new dictionary content:
+
+1. **A captured response from a live engine**: `GET /api/v6/schemas/enums/{enumSetName}` for `reliabilityEnumSet`, `unitEnumSet`, `objectCategoryEnumSet`, etc. JCI's REST API publishes these by-name in the OpenAPI spec but the actual ID→name content is fetched live. One curl from a live ADX would give us all of them.
+
+2. **SCT's local cache files**: SCT itself probably has the dictionary cached locally (in `%ProgramData%\Johnson Controls\` or similar). A user with SCT installed could check.
+
+3. **Java bytecode decompilation** of `MetasysUI.jar`: a tool like CFR or Procyon would extract the `static final int X = N` constant definitions that map names to IDs. This is the last-resort path but conclusive.
+
+For graphics rendering specifically, the highest-leverage move would be to write a binding-extractor: parse decoded XAML to list every Metasys object attribute referenced by every graphic. That alone would be a useful audit feature without needing to render anything.
+
 ### v0.3.7 — Unbound References Explorer (2026-05-14) ✅
 
 The killer signal-test feature. SCT's standard workflow for fixing unbound references is one-click-per-row through thousands of items. This makes it a bulk operation.

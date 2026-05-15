@@ -15,6 +15,9 @@ references/pdf_classes_raw.json
 references/pdf_attributes_raw.json
 references/new_class_names_block.js
 references/SCTToolHelp.pdf
+references/CCTHelp.pdf
+references/GGTHelp.pdf
+references/MetasysUIHelp.pdf
 
 # Scratch / test artifacts
 .tmp_*.py
