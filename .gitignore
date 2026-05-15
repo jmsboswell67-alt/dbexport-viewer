@@ -1,0 +1,29 @@
+# Never commit JCI's original files — only the extracted facts (ID->name mappings
+# baked into index.html) are interop reference data. The original Java archives
+# remain JCI's copyrighted material and must not be redistributed.
+references/Metasys-*.zip
+references/F4SNC-*.zip
+references/extracted/
+references/dictionary.json
+references/dictionary_from_commands.json
+references/dict_js_block.js
+
+# Scratch / test artifacts
+.tmp_*.py
+.inline_jszip.py
+.jszip.min.js
+*.dbexport
+*.caf
+UnboundReferences*.csv
+!index.html
+
+# Preview / build dirs
+.claude/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
