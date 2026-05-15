@@ -1,0 +1,45 @@
+name: Bug report
+description: Something rendered wrong, crashed, or behaved unexpectedly.
+title: "Bug: <one-line summary>"
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, what did the viewer do instead
+      placeholder: |
+        I dropped a .caf file from an NCE25. The page indexed it but the
+        Graphics mode button stayed disabled even though the .caf has
+        embedded graphics references.
+    validations:
+      required: true
+  - type: textarea
+    id: console_errors
+    attributes:
+      label: Browser console errors (if any)
+      description: Open DevTools (F12) → Console tab. Paste anything red.
+      render: text
+    validations:
+      required: false
+  - type: input
+    id: browser
+    attributes:
+      label: Browser + version
+      placeholder: Chrome 132, Firefox 134, Edge 132, Safari 18
+    validations:
+      required: false
+  - type: input
+    id: file_type
+    attributes:
+      label: File type that triggered the bug
+      placeholder: .dbexport from Metasys 13.0.3 / .caf from FEC2611
+    validations:
+      required: false
+  - type: textarea
+    id: archive_info
+    attributes:
+      label: Archive context (optional)
+      description: If you can share the archive file or even just a description of what's in it, that's gold
+    validations:
+      required: false

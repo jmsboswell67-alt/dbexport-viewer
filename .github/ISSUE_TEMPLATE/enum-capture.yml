@@ -1,0 +1,78 @@
+name: Live engine enum-set capture
+description: Paste responses from the Metasys REST API to fill in enum/state-set definitions.
+title: "Enum captures: Metasys <version> from <site type>"
+labels: ["dictionary", "enum-sets", "help-wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! This is the single highest-leverage thing the community can contribute.
+
+        ## Why this matters
+
+        Our viewer currently displays values like `enum[507]=64` because the enum-set
+        definitions live in the engine at runtime, not in any static JCI document.
+        JCI's REST API publishes them at `/api/v6/schemas/enums/<setName>` but only
+        on a live ADX/server.
+
+        One round of curl from someone with SMP/SCT/MUI access closes the gap for
+        every user of this tool, forever.
+
+        ## How to capture
+
+        Once you've authenticated against your Metasys server (see [JCI's REST API
+        docs](https://jci-metasys.github.io/api-landing/) for the login flow), run
+        these curl commands (or hit the URLs from any logged-in browser tab):
+
+        ```
+        GET https://<your-adx>/api/v6/schemas/enums/reliabilityEnumSet
+        GET https://<your-adx>/api/v6/schemas/enums/unitEnumSet
+        GET https://<your-adx>/api/v6/schemas/enums/jciSystemStatusEnumSet
+        GET https://<your-adx>/api/v6/schemas/enums/writePriorityEnumSet
+        GET https://<your-adx>/api/v6/schemas/enums/displayPrecisionEnumSet
+        GET https://<your-adx>/api/v6/schemas/enums/objectCategoryEnumSet
+        GET https://<your-adx>/api/v6/schemas/enums/auditOriginAppEnumSet
+        GET https://<your-adx>/api/v6/schemas/enums/auditClassesEnumSet
+        GET https://<your-adx>/api/v6/schemas/enums/auditActionTypeEnumSet
+        GET https://<your-adx>/api/v6/schemas/enums/alarmValueEnumSet
+        ```
+
+        These are public JCI-documented endpoints. The response is a JSON schema
+        with `enum` and `enumNames` arrays — exactly the data we need.
+
+        Paste the JSON responses below (or attach as files if too long). **Please
+        redact your hostname and any site-identifying info from the response if
+        you'd like — only the enum definitions are needed.**
+  - type: input
+    id: version
+    attributes:
+      label: Metasys server version
+      description: e.g. 14.0, 13.0.3, etc. (from About box)
+      placeholder: 14.0
+    validations:
+      required: true
+  - type: textarea
+    id: captures
+    attributes:
+      label: Enum responses
+      description: One JSON response per enum set. Wrap each in a fenced code block with the set name as a heading.
+      placeholder: |
+        ## reliabilityEnumSet
+        ```json
+        { "enum": [...], "enumNames": [...] }
+        ```
+
+        ## unitEnumSet
+        ```json
+        { ... }
+        ```
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes / caveats
+      description: Anything weird in the response, sets that 404'd, version-specific oddities
+    validations:
+      required: false

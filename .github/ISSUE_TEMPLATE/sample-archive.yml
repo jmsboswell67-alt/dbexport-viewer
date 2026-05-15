@@ -1,0 +1,85 @@
+name: Share a sample archive
+description: Drop a sanitized .dbexport or .caf so we can test against more site types.
+title: "Sample: <site type / firmware>"
+labels: ["sample", "test-data"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Variety in test data is one of the highest-leverage contributions. The
+        more sites we can test against, the better the heuristics get
+        (especially around the bindings extractor, the orphan-graphics detector,
+        and the unbound-refs pattern matcher).
+
+        ## What's useful
+
+        - **Non-DACC site types** — hospitals, retail, manufacturing, high-rises, single buildings
+        - **Older firmware** (8.x, 9.x, 10.x) and **newer** (14.x, 15.x)
+        - **Unusual integrations** — LON-heavy sites, large N1 footprints, BACnet/IP routers
+        - **`.caf` files from different controller models** — FEC, FAC, IOM, VMA, NCE, SNC
+
+        ## How to sanitize before sharing (recommended)
+
+        BAS archives may include:
+        - Internal IP addresses, hostnames
+        - SMTP server hosts, email recipient lists
+        - Possibly user names (depends on how it was exported)
+
+        Easy sanitization options:
+        1. **Pre-share scrub**: open the archive, delete email recipient lists, change site name, re-export
+        2. **Just send the navtree.xml + a few sample archive.xml files** if you're concerned about full disclosure
+        3. **Strip credentials**: check `security.xml` inside the zip — if it has anything sensitive, delete that file before sharing
+
+        We never need to be able to log into anything from your archive. Just the
+        configuration data.
+
+        ## How to send
+
+        - **Small files (<25 MB)**: drag onto the GitHub web UI when commenting on this issue
+        - **Larger files**: link to a temporary file-share (Dropbox, WeTransfer, Google Drive) — please use an expiring link
+        - **Encrypted**: I'll provide a contact email if you'd rather send something more privately
+
+        Whatever's easiest. Even **just metadata** (object counts by class, list of engines, sample property IDs encountered) is useful — see the inventory_unknowns.py script in the repo.
+  - type: input
+    id: site_type
+    attributes:
+      label: Site description
+      description: Type of building, rough scale, vendor mix
+      placeholder: Single 12-story office building, ~200 VAVs, one chiller plant, mixed JCI + BACnet integration
+    validations:
+      required: true
+  - type: input
+    id: firmware_versions
+    attributes:
+      label: Firmware version(s)
+      placeholder: 13.0.2 on most engines, one NCE at 10.4
+    validations:
+      required: false
+  - type: textarea
+    id: details
+    attributes:
+      label: What's interesting / unusual
+      description: Anything that makes this archive a useful test case
+      placeholder: |
+        - All N1-legacy integration, no BACnet
+        - Custom Programming with deep nested logic
+        - Large User Trees (~50 tabs)
+        - Site went through ADX rename last year, may have unbound refs
+    validations:
+      required: false
+  - type: textarea
+    id: file_or_link
+    attributes:
+      label: File attached or link
+      description: Drag the file in here OR paste a download link OR say "metadata only — see inventory output below"
+      placeholder: dropbox.com/temp/...
+    validations:
+      required: true
+  - type: textarea
+    id: inventory
+    attributes:
+      label: Optional — inventory_unknowns.py output
+      description: If you don't want to share the archive itself, just paste the inventory report
+      render: markdown
+    validations:
+      required: false

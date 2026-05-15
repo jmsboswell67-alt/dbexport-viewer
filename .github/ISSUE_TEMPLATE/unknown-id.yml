@@ -1,0 +1,69 @@
+name: Unknown class or property ID
+description: Help expand the dictionary — paste the unknown IDs your archive surfaced.
+title: "Unknown IDs: <short description of your site / firmware>"
+labels: ["dictionary", "good first issue"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for contributing to the dictionary! Every additional sample helps name
+        more of the data we display as "Class N" or "Property N".
+
+        **How to gather what to paste below:**
+
+        1. Clone the repo: `git clone https://github.com/jmsboswell67-alt/dbexport-viewer`
+        2. Drop your `.dbexport` files in `C:\Users\<you>\Desktop\jci\` (or edit the path in the script).
+        3. Run: `python references/inventory_unknowns.py`
+        4. Open `references/unknowns_report.md` and paste the relevant sections below.
+
+        Even partial paste is useful. If you can also name a few of the unknown IDs
+        from your own JCI experience, please do!
+  - type: input
+    id: site
+    attributes:
+      label: Site / installation type
+      description: e.g. "K-12 school", "hospital", "manufacturing", "high-rise office"
+      placeholder: K-12 school, mostly VAVs with one central plant
+    validations:
+      required: false
+  - type: input
+    id: firmware
+    attributes:
+      label: Engine firmware version(s)
+      description: NAE/SNE/NCE firmware versions in the archive
+      placeholder: 13.0.2, 14.0.0
+    validations:
+      required: false
+  - type: textarea
+    id: unknown_classes
+    attributes:
+      label: Unknown class IDs from inventory_unknowns.py
+      description: Paste the "Unknown class IDs" section of `unknowns_report.md`
+      placeholder: |
+        ### `cid=905`  (87 objects)
+        Example refs:
+        - `SITE:ENG/Programming.X.$1234`
+      render: markdown
+    validations:
+      required: false
+  - type: textarea
+    id: unknown_props
+    attributes:
+      label: Unknown property IDs from inventory_unknowns.py
+      description: Paste the "Unknown property IDs" section of `unknowns_report.md`
+      placeholder: |
+        ### `prop=5544`  (12,000 occurrences)
+        Owner classes: cid 197 (Field Equipment Controller), cid 601
+      render: markdown
+    validations:
+      required: false
+  - type: textarea
+    id: named_guesses
+    attributes:
+      label: If you can name any of them yourself, please do
+      description: Format as `cid=N: Name` or `prop=N: Name`, one per line
+      placeholder: |
+        cid=905: Refrigeration Controller
+        prop=5544: COV Subscription Lifetime
+    validations:
+      required: false

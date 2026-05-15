@@ -1,0 +1,71 @@
+name: CCT logic-block class names
+description: Help identify the ~30 CCT-specific class IDs that no JCI public doc names.
+title: "CCT class names: <controller model> firmware <version>"
+labels: ["dictionary", "caf", "help-wanted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `.caf` files contain about 30 class IDs (526, 528, 530, 555, 556, 561, 568,
+        658, 659, 660, and others) that no public JCI document names. These are
+        CCT-internal logic-block types — PIDs, math operators, comparators,
+        schedule readers, etc.
+
+        If you have CCT installed and can open a `.caf` file, you can identify
+        what each class ID represents by:
+
+        1. Open the `.caf` in CCT
+        2. Inspect the logic blocks visible in the Control Block Palette or Logic Tab
+        3. Right-click a block → Details. The Object Type or Class ID shows what
+           it is.
+        4. Map your observations to the class IDs you see in our viewer (which
+           shows them as `Class N`)
+
+        Format the mapping below as `cid=N: <name>`, one per line. A short note
+        about what the block does is gold but not required.
+  - type: input
+    id: controller_type
+    attributes:
+      label: Controller type / model
+      description: e.g. FEC2611, FAC4911, VMA1626
+      placeholder: FEC2611
+    validations:
+      required: false
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware version
+      placeholder: 10.5
+    validations:
+      required: false
+  - type: input
+    id: cct_version
+    attributes:
+      label: CCT version used to inspect
+      placeholder: 14.0.0.x
+    validations:
+      required: false
+  - type: textarea
+    id: mappings
+    attributes:
+      label: Class ID → name mappings
+      description: |
+        Format as `cid=N: <name>` per line. Add a description after a `--` if you can.
+      placeholder: |
+        cid=526: Setpoint Hold -- holds a setpoint until released
+        cid=528: Float Compare -- compares two floats with hysteresis
+        cid=555: Output Wrapper -- generic wrapper for any output type
+        cid=556: Input Wrapper
+        cid=658: AV Load Extension
+        cid=659: BV Load Extension
+        cid=660: MV Load Extension
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Anything else helpful — what your controller does, any peculiarities, related class IDs we should know about
+    validations:
+      required: false
