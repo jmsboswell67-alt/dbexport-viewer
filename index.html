@@ -1261,15 +1261,33 @@ function parseRef(ref) {
 }
 
 function categorizeFirstSegment(seg) {
+  // Trunks / buses — keep first under an engine, since they contain the actual
+  // equipment + points (the meat). Different JCI sites use different naming.
+  //
+  // MS/TP / Field Bus variants:
+  //   "FC-1", "FC-2"          DACC convention
+  //   "FCB"                    older NCE convention
+  //   "Field Bus", "Field Bus2", "Field Bus  1"   SIU convention
   if (/^FC-\d+$/.test(seg)) return { label: "Field Bus " + seg, kind: "fieldbus" };
-  if (/^N2 Trunk/i.test(seg)) return { label: seg, kind: "n2trunk" };
+  if (/^FCB$/i.test(seg)) return { label: "Field Bus (FCB)", kind: "fieldbus" };
+  if (/^Field\s*Bus/i.test(seg)) return { label: seg, kind: "fieldbus" };
+  // N2 trunk variants:
+  //   "N2 Trunk 1", "N2 Trunk  1"   DACC convention
+  //   "N2-1", "N2-2"                 SIU convention
+  if (/^N2(\s|-)/i.test(seg)) return { label: seg, kind: "n2trunk" };
+  // BACnet trunk variants:
+  //   "BACnet Trunk 001", "BACnet"   various conventions
+  if (/^BACnet\s*Trunk/i.test(seg)) return { label: seg, kind: "bacnettrunk" };
+  // LON trunk variants:
+  if (/^LON\s*Trunk/i.test(seg)) return { label: seg, kind: "lontrunk" };
+  // Other identifiable categories
   if (seg === "Programming") return { label: "Programming", kind: "programming" };
   if (seg === "System Programs") return { label: "System Programs", kind: "sysprograms" };
   if (seg === "Schedule") return { label: "Schedules", kind: "schedules" };
   if (seg === "Graphics") return { label: "Graphics", kind: "graphics" };
   if (seg.startsWith("$site")) return { label: "Site Configuration", kind: "site" };
   if (seg.startsWith("$Generic")) return { label: "Generic Archive", kind: "generic" };
-  if (seg.startsWith("$GenericArchive")) return { label: "Generic Archive", kind: "generic" };
+  if (seg.startsWith("$Facility")) return { label: seg, kind: "generic" };
   return { label: seg, kind: "category" };
 }
 
@@ -1333,7 +1351,8 @@ function buildHierarchy(arc) {
 }
 
 const PRESERVED_KINDS = new Set([
-  "engine","fieldbus","n2trunk","programming","sysprograms",
+  "engine","fieldbus","n2trunk","bacnettrunk","lontrunk",
+  "programming","sysprograms",
   "schedules","graphics","site","generic","category",
 ]);
 
@@ -1430,13 +1449,17 @@ function findNodeByKey(arc, key) {
 
 const KIND_ORDER = {
   engine: 0,
-  fieldbus: 1, n2trunk: 2, programming: 3, sysprograms: 4,
-  schedules: 5, graphics: 6, site: 7, generic: 8,
-  folder: 9, category: 10,
-  equipment: 11,
-  schedule: 12, graphic: 13, logic: 14,
-  point: 15, trendlog: 16, alarm: 17,
-  other: 18,
+  // Trunks/buses contain the actual equipment + points — put them at the top
+  // under an engine so the user doesn't have to scroll past 30 system-status
+  // objects (alarm rates, CPU usage, BBMD, etc.) to find what they care about.
+  fieldbus: 1, n2trunk: 2, bacnettrunk: 3, lontrunk: 4,
+  programming: 5, sysprograms: 6,
+  schedules: 7, graphics: 8, site: 9, generic: 10,
+  folder: 11, category: 12,
+  equipment: 13,
+  schedule: 14, graphic: 15, logic: 16,
+  point: 17, trendlog: 18, alarm: 19,
+  other: 20,
 };
 
 function kindIcon(kind) {
@@ -1444,6 +1467,8 @@ function kindIcon(kind) {
     engine: "◉",
     fieldbus: "⌬",
     n2trunk: "⌬",
+    bacnettrunk: "⌬",
+    lontrunk: "⌬",
     programming: "λ",
     sysprograms: "λ",
     schedules: "▣",
