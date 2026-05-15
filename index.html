@@ -592,6 +592,7 @@
     <button data-mode="browse" class="active">Browse</button>
     <button data-mode="diff" disabled>Diff</button>
     <button data-mode="unbound" disabled>Unbound Refs</button>
+    <button data-mode="graphics" disabled>Graphics</button>
   </div>
 </header>
 
@@ -1485,6 +1486,8 @@ const state = {
   treeFilter: "",
   unboundPivot: "patterns",
   unboundPivotValue: null,
+  graphicsPivot: "byGraphic",
+  graphicsSelection: null,
 };
 
 // ============ XML parsing ============
@@ -1794,8 +1797,10 @@ function updateModeAvailability() {
   const a = state.archives[0], b = state.archives[1];
   const bothArchives = a && b && a.kind !== "unbound" && b.kind !== "unbound";
   const hasUnbound = state.archives.some(x => x && x.kind === "unbound");
+  const hasGraphics = state.archives.some(x => x && x._zip && x.kind !== "unbound");
   document.querySelector('[data-mode="diff"]').disabled = !bothArchives;
   document.querySelector('[data-mode="unbound"]').disabled = !hasUnbound;
+  document.querySelector('[data-mode="graphics"]').disabled = !hasGraphics;
 }
 
 // ============ Tree rendering ============
@@ -1810,6 +1815,10 @@ function renderTree() {
 
   if (state.mode === "unbound") {
     return renderUnboundTree(root);
+  }
+
+  if (state.mode === "graphics") {
+    return renderGraphicsTree(root);
   }
 
   if (state.mode === "diff" && state.archives[0] && state.archives[1]) {
@@ -1983,6 +1992,11 @@ function renderDetail() {
   if (state.mode === "unbound") {
     if (exportWrap) exportWrap.style.display = "none";
     return renderUnboundDetail(body, crumb, classSel, objSearch);
+  }
+
+  if (state.mode === "graphics") {
+    if (exportWrap) exportWrap.style.display = "none";
+    return renderGraphicsDetail(body, crumb, classSel, objSearch);
   }
 
   const arc = state.archives[state.selectedSlot] || state.archives[0];
@@ -2992,6 +3006,408 @@ function exportRepointPlan(rows, fromPrefix, toPrefix) {
   }
   const csv = lines.join("\n") + "\n";
   downloadBlob(`repoint_${cleanFilename(fromPrefix)}_to_${cleanFilename(toPrefix)}_${rows.length}.csv`, "text/csv;charset=utf-8", csv);
+}
+
+// ============ Graphics binding extractor + Graphics-mode views ============
+//
+// Every dbexport contains graphic files (Graphics.<Building>.<Name>.xml for the
+// older TSEGraph format, .xaml for the newer WPF format). Both are gzipped+
+// base64 wrapped in a <Base64Zip> envelope. Inside, point bindings appear as
+// embedded item-reference strings — "<ADX>:<Engine>/<bus>.<equipment>.<point>".
+//
+// This extractor decodes each graphic and pulls every distinct Metasys item
+// ref out via regex. The result is a bidirectional index: graphic→points and
+// point→graphics. Useful for "what graphics break if I delete this point?" and
+// "what points does this graphic reference?".
+
+async function extractGraphicBindings(arc) {
+  if (arc._graphicBindings) return arc._graphicBindings;
+  if (!arc._zip) {
+    arc._graphicBindings = { bindings: [], graphics: [], byGraphic: new Map(), byPoint: new Map() };
+    return arc._graphicBindings;
+  }
+
+  // Find every Graphics.*.xml or .xaml that's not a UserTrees navView
+  const paths = [];
+  arc._zip.forEach((path, entry) => {
+    if (entry.dir) return;
+    const lower = path.toLowerCase();
+    if (lower.includes("usertrees")) return;
+    if (!lower.includes("graphics.") && !lower.includes("graphics\\.")) return;
+    if (!lower.endsWith(".xml") && !lower.endsWith(".xaml")) return;
+    paths.push(path);
+  });
+
+  // Item-ref pattern. Matches "<ADX>:<Engine>/<path>" where path is dot/word chars.
+  // Single greedy match (no nested quantifiers) — avoids catastrophic backtracking
+  // that happens with patterns like [\w\.\- ]+(?:\.[\w\-]+)+ on large strings.
+  const REF_RE = /[A-Z][A-Za-z0-9\-]{1,40}:[A-Za-z0-9\-]{1,40}\/[A-Za-z0-9_\-. ]{1,200}/g;
+
+  const bindings = [];
+  const graphics = [];
+  const byGraphic = new Map();
+  const byPoint = new Map();
+
+  let processed = 0;
+  for (const path of paths) {
+    const entry = arc._zip.file(path);
+    if (!entry) continue;
+    let text;
+    try { text = await entry.async("string"); }
+    catch (e) { continue; }
+
+    // Decode <Base64Zip> wrapper if present
+    const m = text.match(/<Base64Zip[^>]*>([\s\S]*?)<\/Base64Zip>/);
+    if (m) {
+      try { text = await gunzipText(m[1].trim()); }
+      catch (e) { /* leave as-is */ }
+    }
+
+    const filename = path.replace(/^.*[\\\/]/, "");
+    const isXaml = filename.toLowerCase().endsWith(".xaml");
+    const graphicName = filename.replace(/\.(xml|xaml)$/i, "").replace(/^Graphics\./i, "");
+
+    const found = new Set();
+    let mm;
+    REF_RE.lastIndex = 0;
+    while ((mm = REF_RE.exec(text)) !== null) {
+      // Require at least one "." in the path part (filters out short non-point refs)
+      const m2 = mm[0];
+      const slashIdx = m2.indexOf("/");
+      if (slashIdx < 0) continue;
+      const pathPart = m2.slice(slashIdx + 1);
+      // Trim trailing punctuation that the regex may have swept up
+      const trimmed = m2.replace(/[\s.,;"'<>)\]}]+$/, "");
+      // Must have at least one dot in path AND not contain whitespace at boundaries
+      if (!pathPart.includes(".")) continue;
+      if (trimmed.length < 8) continue;
+      found.add(trimmed);
+    }
+
+    // Exclude refs to OTHER graphics (the navigation buttons between graphics).
+    // A graphic ref's path includes "/Graphics." — point refs don't.
+    const pointRefs = [...found].filter(r => !/\/Graphics\./i.test(r));
+
+    graphics.push({
+      name: graphicName,
+      format: isXaml ? "xaml" : "xml",
+      path,
+      bindingCount: pointRefs.length,
+    });
+    byGraphic.set(graphicName, pointRefs);
+
+    for (const ref of pointRefs) {
+      bindings.push({ graphic: graphicName, pointRef: ref, format: isXaml ? "xaml" : "xml" });
+      if (!byPoint.has(ref)) byPoint.set(ref, []);
+      byPoint.get(ref).push(graphicName);
+    }
+
+    // Yield to the event loop every 5 files so the UI doesn't freeze
+    if (++processed % 5 === 0) await new Promise(r => setTimeout(r, 0));
+  }
+
+  // Sort
+  graphics.sort((a, b) => b.bindingCount - a.bindingCount || a.name.localeCompare(b.name));
+
+  arc._graphicBindings = { bindings, graphics, byGraphic, byPoint };
+  return arc._graphicBindings;
+}
+
+function getGraphicsArchive() {
+  for (const slot of [state.selectedSlot, 0, 1]) {
+    const a = state.archives[slot];
+    if (a && a._zip && a.kind !== "unbound") return a;
+  }
+  return null;
+}
+
+function renderGraphicsTree(root) {
+  const arc = getGraphicsArchive();
+  if (!arc) return;
+  // Async hint: if not yet extracted, show "Indexing…" placeholder
+  if (!arc._graphicBindings) {
+    const el = document.createElement("div");
+    el.className = "tree-node";
+    el.style.padding = "12px 16px";
+    el.style.color = "var(--ink-dim)";
+    el.textContent = "Indexing graphics…";
+    root.appendChild(el);
+    extractGraphicBindings(arc).then(() => { renderTree(); renderDetail(); });
+    return;
+  }
+  const an = arc._graphicBindings;
+
+  addSectionTitle(root, arc.name);
+
+  const pivots = [
+    { key: "byGraphic", label: "By graphic",          count: an.graphics.length, icon: "◐" },
+    { key: "byPoint",   label: "By bound point",      count: an.byPoint.size,    icon: "·" },
+    { key: "orphans",   label: "Unbound graphics",    count: an.graphics.filter(g => g.bindingCount === 0).length, icon: "○" },
+  ];
+  for (const p of pivots) {
+    const el = document.createElement("div");
+    el.className = "tree-node" + (state.graphicsPivot === p.key ? " selected" : "");
+    el.style.paddingLeft = "12px";
+    el.innerHTML = `<span class="chevron"></span><span class="kind-icon">${p.icon}</span><span class="name"></span><span class="count">${p.count.toLocaleString()}</span>`;
+    el.querySelector(".name").textContent = p.label;
+    el.addEventListener("click", () => {
+      state.graphicsPivot = p.key;
+      state.graphicsSelection = null;
+      renderTree();
+      renderDetail();
+    });
+    root.appendChild(el);
+  }
+
+  const q = (state.treeFilter || "").toLowerCase();
+  if (state.graphicsPivot === "byGraphic" || state.graphicsPivot === "orphans") {
+    addSectionTitle(root, `Graphics (${an.graphics.length})`);
+    const list = state.graphicsPivot === "orphans"
+      ? an.graphics.filter(g => g.bindingCount === 0)
+      : an.graphics;
+    for (const g of list) {
+      if (q && !g.name.toLowerCase().includes(q)) continue;
+      const el = document.createElement("div");
+      el.className = "tree-node" + (state.graphicsSelection === g.name ? " selected" : "");
+      el.style.paddingLeft = "28px";
+      el.innerHTML = `<span class="chevron"></span><span class="kind-icon">◐</span><span class="name"></span><span class="count">${g.bindingCount.toLocaleString()}</span>`;
+      el.querySelector(".name").textContent = g.name;
+      el.title = g.path;
+      el.addEventListener("click", () => {
+        state.graphicsSelection = g.name;
+        renderDetail();
+      });
+      root.appendChild(el);
+    }
+  } else if (state.graphicsPivot === "byPoint") {
+    // Sort points by graphic-reference count desc
+    const entries = [...an.byPoint.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+    addSectionTitle(root, `Bound points (${entries.length})`);
+    for (const [ref, refGraphics] of entries) {
+      if (q && !ref.toLowerCase().includes(q)) continue;
+      const el = document.createElement("div");
+      el.className = "tree-node" + (state.graphicsSelection === ref ? " selected" : "");
+      el.style.paddingLeft = "28px";
+      const leaf = ref.split(/[\.:\/]/).pop();
+      el.innerHTML = `<span class="chevron"></span><span class="kind-icon">·</span><span class="name"></span><span class="count">${refGraphics.length}</span>`;
+      el.querySelector(".name").textContent = leaf;
+      el.title = ref;
+      el.addEventListener("click", () => {
+        state.graphicsSelection = ref;
+        renderDetail();
+      });
+      root.appendChild(el);
+    }
+  }
+}
+
+function renderGraphicsDetail(body, crumb, classSel, objSearch) {
+  classSel.style.display = "none";
+  objSearch.style.display = "";
+  objSearch.placeholder = "Filter…";
+  objSearch.value = state.objSearch || "";
+  const exportWrap = document.querySelector(".export-wrap");
+  if (exportWrap) exportWrap.style.display = "none";
+
+  const arc = getGraphicsArchive();
+  if (!arc) {
+    crumb.textContent = "Load a .dbexport to begin.";
+    body.innerHTML = `<div class="empty"><div class="big">No archive loaded</div></div>`;
+    return;
+  }
+  if (!arc._graphicBindings) {
+    crumb.innerHTML = `<strong>${escapeHtml(arc.name)}</strong> · indexing graphics…`;
+    body.innerHTML = `<div class="loading">Indexing graphic bindings</div>`;
+    return;
+  }
+  const an = arc._graphicBindings;
+  const pivot = state.graphicsPivot || "byGraphic";
+
+  // Header
+  crumb.innerHTML = `<strong>${escapeHtml(arc.name)}</strong> · ${an.graphics.length} graphics · ${an.byPoint.size.toLocaleString()} distinct bound points · ${an.bindings.length.toLocaleString()} total bindings`;
+
+  // Summary
+  if (!state.graphicsSelection) {
+    return renderGraphicsSummary(body, an, pivot);
+  }
+
+  if (pivot === "byGraphic" || pivot === "orphans") {
+    return renderGraphicDetail(body, an, state.graphicsSelection);
+  }
+  if (pivot === "byPoint") {
+    return renderPointDetail(body, an, state.graphicsSelection);
+  }
+}
+
+function renderGraphicsSummary(body, an, pivot) {
+  const wrap = document.createElement("div");
+  wrap.className = "obj-detail";
+
+  if (pivot === "orphans") {
+    const orphans = an.graphics.filter(g => g.bindingCount === 0);
+    wrap.innerHTML = `<h2 style="font-family: var(--sans); word-break: normal;">○ Unbound graphics</h2>
+      <p style="color: var(--ink-soft); max-width: 760px;">Graphics with no point bindings detected. These are usually navigation pages (button-only menus that link to other graphics) or graphics imported from a different site whose refs no longer resolve.</p>`;
+    if (!orphans.length) {
+      wrap.innerHTML += `<p>None — every graphic has at least one point binding.</p>`;
+    } else {
+      const tbl = document.createElement("table");
+      tbl.className = "objs";
+      tbl.innerHTML = `<thead><tr><th>Graphic</th><th>Format</th></tr></thead>`;
+      const tbody = document.createElement("tbody");
+      for (const g of orphans) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td class="ref"><span class="leaf">${escapeHtml(g.name)}</span></td>
+                       <td class="cid">${escapeHtml(g.format)}</td>`;
+        tr.addEventListener("click", () => { state.graphicsSelection = g.name; renderDetail(); });
+        tbody.appendChild(tr);
+      }
+      tbl.appendChild(tbody);
+      wrap.appendChild(tbl);
+    }
+    body.appendChild(wrap);
+    return;
+  }
+
+  wrap.innerHTML = `<h2 style="font-family: var(--sans); word-break: normal;">Graphic bindings overview</h2>
+    <p style="color: var(--ink-soft); max-width: 760px;">Click a graphic on the left to see every point it references, or switch to "By bound point" to find every graphic that references a specific point. Useful for answering "what graphics break if I delete this point?".</p>`;
+
+  // Top 15 most-binding graphics
+  const top = an.graphics.slice(0, 15);
+  const tbl = document.createElement("table");
+  tbl.className = "objs";
+  tbl.innerHTML = `<thead><tr><th>Graphic</th><th>Format</th><th style="text-align:right;">Bindings</th></tr></thead>`;
+  const tbody = document.createElement("tbody");
+  for (const g of top) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="ref"><span class="leaf">◐ ${escapeHtml(g.name)}</span></td>
+                   <td class="cid">${escapeHtml(g.format)}</td>
+                   <td class="cid" style="text-align:right; font-variant-numeric: tabular-nums;">${g.bindingCount.toLocaleString()}</td>`;
+    tr.addEventListener("click", () => { state.graphicsSelection = g.name; renderDetail(); });
+    tbody.appendChild(tr);
+  }
+  tbl.appendChild(tbody);
+
+  const cap = document.createElement("h3");
+  cap.style.cssText = "margin: 20px 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft);";
+  cap.textContent = `Top ${top.length} graphics by binding count (of ${an.graphics.length})`;
+  wrap.appendChild(cap);
+  wrap.appendChild(tbl);
+
+  body.appendChild(wrap);
+}
+
+function renderGraphicDetail(body, an, graphicName) {
+  const refs = an.byGraphic.get(graphicName) || [];
+  let filtered = refs;
+  if (state.objSearch) {
+    const q = state.objSearch.toLowerCase();
+    filtered = refs.filter(r => r.toLowerCase().includes(q));
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "obj-detail";
+  wrap.innerHTML = `<h2 style="font-family: var(--sans); word-break: normal;">◐ ${escapeHtml(graphicName)}</h2>
+    <div class="meta">
+      <span>Bindings: <strong>${refs.length.toLocaleString()}</strong></span>
+      ${refs.length !== filtered.length ? `<span>Showing: <strong>${filtered.length.toLocaleString()}</strong></span>` : ""}
+    </div>`;
+
+  // Group by engine for readability
+  const byEngine = new Map();
+  for (const r of filtered) {
+    const eng = (r.split(":")[1] || "").split("/")[0];
+    if (!byEngine.has(eng)) byEngine.set(eng, []);
+    byEngine.get(eng).push(r);
+  }
+  for (const [eng, list] of byEngine) {
+    const h = document.createElement("h3");
+    h.style.cssText = "margin: 16px 0 6px; font-size: 13px; color: var(--ink);";
+    h.textContent = `${eng} (${list.length})`;
+    wrap.appendChild(h);
+    const tbl = document.createElement("table");
+    tbl.className = "objs";
+    tbl.innerHTML = `<thead><tr><th>Item reference</th><th>Leaf (point name)</th></tr></thead>`;
+    const tbody = document.createElement("tbody");
+    list.sort();
+    for (const r of list) {
+      const leaf = r.split(/[\.:\/]/).pop();
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td class="ref"><span class="path">${escapeHtml(r.slice(0, r.length - leaf.length))}</span><span class="leaf">${escapeHtml(leaf)}</span></td>
+                     <td class="cid"><strong>${escapeHtml(leaf)}</strong></td>`;
+      tbody.appendChild(tr);
+    }
+    tbl.appendChild(tbody);
+    wrap.appendChild(tbl);
+  }
+
+  // Export button
+  const exportBar = document.createElement("div");
+  exportBar.style.cssText = "margin-top: 16px; display: flex; gap: 6px;";
+  exportBar.innerHTML = `<button class="export-btn" id="exportBindings">Download bindings (CSV)</button>`;
+  wrap.appendChild(exportBar);
+  setTimeout(() => {
+    document.getElementById("exportBindings")?.addEventListener("click", () => {
+      const csv = ["graphic,point_ref,leaf"];
+      for (const r of refs) {
+        const leaf = r.split(/[\.:\/]/).pop();
+        csv.push(`${csvCell(graphicName)},${csvCell(r)},${csvCell(leaf)}`);
+      }
+      downloadBlob(`graphic_${cleanFilename(graphicName)}_bindings.csv`, "text/csv;charset=utf-8", csv.join("\n") + "\n");
+    });
+  }, 0);
+
+  body.appendChild(wrap);
+}
+
+function renderPointDetail(body, an, pointRef) {
+  const refGraphics = an.byPoint.get(pointRef) || [];
+  let filtered = refGraphics;
+  if (state.objSearch) {
+    const q = state.objSearch.toLowerCase();
+    filtered = refGraphics.filter(g => g.toLowerCase().includes(q));
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "obj-detail";
+  const leaf = pointRef.split(/[\.:\/]/).pop();
+  wrap.innerHTML = `<h2 style="font-family: var(--sans); word-break: normal;">· ${escapeHtml(leaf)}</h2>
+    <div class="meta">
+      <span>Item Reference: <strong>${escapeHtml(pointRef)}</strong></span>
+    </div>
+    <div class="meta">
+      <span>Referenced by: <strong>${refGraphics.length.toLocaleString()}</strong> graphic${refGraphics.length === 1 ? "" : "s"}</span>
+    </div>
+    <p style="color: var(--ink-soft); max-width: 780px; margin: 12px 0;">If you delete or rename this point, every graphic listed below will need its binding updated or it will display as broken.</p>`;
+
+  if (!filtered.length) {
+    wrap.innerHTML += `<p>No graphics match the current filter.</p>`;
+    body.appendChild(wrap);
+    return;
+  }
+
+  const tbl = document.createElement("table");
+  tbl.className = "objs";
+  tbl.innerHTML = `<thead><tr><th>Graphic</th></tr></thead>`;
+  const tbody = document.createElement("tbody");
+  for (const g of filtered.slice().sort()) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="ref"><span class="leaf">◐ ${escapeHtml(g)}</span></td>`;
+    tr.addEventListener("click", () => {
+      state.graphicsPivot = "byGraphic";
+      state.graphicsSelection = g;
+      renderTree();
+      renderDetail();
+    });
+    tbody.appendChild(tr);
+  }
+  tbl.appendChild(tbody);
+  wrap.appendChild(tbl);
+  body.appendChild(wrap);
+}
+
+function csvCell(v) {
+  const s = String(v == null ? "" : v);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
 function renderDiffDetail(body, crumb, classSel, objSearch) {
