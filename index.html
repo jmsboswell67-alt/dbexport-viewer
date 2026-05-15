@@ -416,6 +416,26 @@
     color: var(--ink);
   }
   .obj-detail .prop.diff-changed { background: var(--info-soft); }
+  .obj-detail .prop.empty .pval { color: var(--ink-dim); font-style: italic; }
+  .obj-detail .prop.unnamed .pname { color: var(--ink-dim); }
+  .obj-detail .prop.unnamed .pname .pid { color: var(--ink-dim); }
+  .obj-detail details.unnamed-group {
+    border-top: 1px dashed var(--line);
+    padding: 8px 16px;
+    background: var(--bg-alt);
+  }
+  .obj-detail details.unnamed-group summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--ink-soft);
+    user-select: none;
+  }
+  .obj-detail details.unnamed-group summary:hover { color: var(--ink); }
+  .obj-detail details.unnamed-group[open] summary {
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: var(--ink);
+  }
   .controller-card {
     margin: 0 20px 20px;
     padding: 16px 20px;
@@ -1971,11 +1991,28 @@ function renderChildrenTable(node) {
   return wrap;
 }
 
+function displayRef(ref) {
+  // Strip redundant doubled prefix: "ADX:ADX/path" -> "ADX / path"
+  // Common Metasys pattern where the ADX appears twice.
+  const colon = ref.indexOf(":");
+  if (colon < 0) return ref;
+  const adx = ref.slice(0, colon);
+  const after = ref.slice(colon + 1);
+  const slash = after.indexOf("/");
+  if (slash < 0) return ref;
+  const engine = after.slice(0, slash);
+  const path = after.slice(slash + 1);
+  if (engine === adx) {
+    return `${adx} / ${path}`;
+  }
+  return `${adx} / ${engine} / ${path}`;
+}
+
 function renderObjectPropsDom(obj, compact) {
   const wrap = document.createElement("div");
   wrap.className = "obj-detail";
   wrap.innerHTML = `
-    <h2>${escapeHtml(obj.ref)}</h2>
+    <h2>${escapeHtml(displayRef(obj.ref))}</h2>
     <div class="meta">
       <span>Class: <strong>${escapeHtml(classLabel(obj.classid))}</strong> (cid ${obj.classid})</span>
       ${obj.bacnetclassid ? `<span>BACnet class: <strong>${escapeHtml(obj.bacnetclassid)}</strong></span>` : ""}
@@ -1987,20 +2024,93 @@ function renderObjectPropsDom(obj, compact) {
   return wrap;
 }
 
+// Properties that should always show first (in this order) when present.
+// Identity & most-asked attributes lead; everything else is sorted by name.
+const PRIORITY_PROP_ORDER = [
+  28,    // Description
+  77,    // Object Name
+  2390,  // User Name
+  32527, // Item Reference
+  85,    // Present Value
+  70,    // Model Name
+  44,    // Firmware Version / IP
+  12,    // Comment
+  103,   // Reliability
+  131,   // Reliability (BACnet)
+  75,    // Object Identifier
+  117,   // Units
+  79,    // Object Type
+];
+const PRIORITY_PROP_INDEX = new Map(PRIORITY_PROP_ORDER.map((p, i) => [String(p), i]));
+
+function isEmptyValueText(s) {
+  if (s == null) return true;
+  const t = String(s).trim();
+  return t === "" || t === "(empty)" || t === "(empty list)";
+}
+
 function propsListDom(obj) {
   const list = document.createElement("div");
   list.className = "props";
-  const propIds = Object.keys(obj.properties).map(Number).sort((a, b) => a - b);
-  for (const pid of propIds) {
-    const div = document.createElement("div");
-    div.className = "prop";
-    const val = decodeValue(obj.properties[String(pid)]);
-    div.innerHTML = `
-      <div class="pname">${escapeHtml(propLabel(String(pid)))}<span class="pid">id ${pid}</span></div>
-      <div class="pval">${escapeHtml(val) || "<span style='color:var(--ink-dim)'>(empty)</span>"}</div>
-    `;
-    list.appendChild(div);
+
+  const allIds = Object.keys(obj.properties);
+  const decoded = new Map();
+  for (const pid of allIds) decoded.set(pid, decodeValue(obj.properties[pid] || ""));
+
+  const priority = [];
+  const named = [];
+  const unnamed = [];
+  for (const pid of allIds) {
+    const label = propLabel(pid);
+    const isUnnamed = /^Property \d+$/.test(label);
+    if (PRIORITY_PROP_INDEX.has(pid)) priority.push(pid);
+    else if (isUnnamed) unnamed.push(pid);
+    else named.push(pid);
   }
+  priority.sort((a, b) => PRIORITY_PROP_INDEX.get(a) - PRIORITY_PROP_INDEX.get(b));
+  named.sort((a, b) => propLabel(a).localeCompare(propLabel(b)));
+  unnamed.sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+
+  const ALWAYS_SHOW_EVEN_IF_EMPTY = new Set(["28", "77", "85"]);
+  const finalPriority = priority.filter(pid => ALWAYS_SHOW_EVEN_IF_EMPTY.has(pid) || !isEmptyValueText(decoded.get(pid)));
+  const finalNamed = named.filter(pid => !isEmptyValueText(decoded.get(pid)));
+
+  function makeRow(pid, opts = {}) {
+    const div = document.createElement("div");
+    div.className = "prop" + (opts.unnamed ? " unnamed" : "");
+    const val = decoded.get(pid) || "";
+    if (isEmptyValueText(val)) div.classList.add("empty");
+    div.innerHTML = `
+      <div class="pname">${escapeHtml(propLabel(pid))}<span class="pid">id ${pid}</span></div>
+      <div class="pval">${val === "" ? "(empty)" : escapeHtml(val)}</div>
+    `;
+    return div;
+  }
+
+  for (const pid of finalPriority) list.appendChild(makeRow(pid));
+  for (const pid of finalNamed) list.appendChild(makeRow(pid));
+
+  const hiddenNamedEmpty = named.length - finalNamed.length;
+  if (hiddenNamedEmpty > 0) {
+    const det = document.createElement("details");
+    det.className = "unnamed-group";
+    det.innerHTML = `<summary>${hiddenNamedEmpty} named properties with empty/default values</summary>`;
+    for (const pid of named) {
+      if (!isEmptyValueText(decoded.get(pid))) continue;
+      det.appendChild(makeRow(pid));
+    }
+    list.appendChild(det);
+  }
+
+  if (unnamed.length > 0) {
+    const nonEmpty = unnamed.filter(pid => !isEmptyValueText(decoded.get(pid)));
+    const det = document.createElement("details");
+    det.className = "unnamed-group";
+    det.innerHTML = `<summary>${unnamed.length} unnamed properties (${nonEmpty.length} with values) — click to expand</summary>`;
+    for (const pid of unnamed) det.appendChild(makeRow(pid, { unnamed: true }));
+    list.appendChild(det);
+  }
+
   return list;
 }
 
