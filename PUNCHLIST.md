@@ -132,6 +132,86 @@ These weren't added because property names are ambiguous from class context alon
 
 Logged as future work; not blocking signal-test.
 
+### v0.3.10 — Native unbound-ref scanner + delete-to-archive workflow (2026-05-15) ✅
+
+Big session. Closed the most obvious gap in the signal-test pitch (the "mass-correct unbound refs" workflow used to require an SCT-generated Unbound References CSV — anyone without SCT was stuck), then built out the full audit + fix + verify loop.
+
+#### Native scanner
+
+Drop a `.dbexport` and the viewer scans for unbound refs natively. No CSV required.
+
+- Builds a Set of every defined object ref across all devices in the archive
+- Walks every `*.xml` inside known device folders (skips archive-root metadata like `archiveobject.xml`, `navtree.xml`, `Cdm*.xml`; skips `security.xml` and `userdictionary.xml` whose base62 hash tokens otherwise match the ref regex by accident)
+- Decodes every `<Base64Zip>` payload inside those XMLs — logic and graphic bindings live there
+- Strips Base64Zip blocks from the outer text before scanning the outer XML, so raw base64 bytes don't pollute matches
+- Regex `<ADX>:<Engine>/<path>` with hardened guards: ADX/engine forbid spaces (real Metasys hostnames don't have them), pure-digit ADX prefixes rejected (IP / timestamp fragments), `data:` URL prefix rejected (inline image assets), engine-name-as-ADX false positives rejected, dedupe at `(referring, attr, referenced)` level
+- Refs attributed per-object/per-property when sourced from `archive.xml`; non-archive.xml refs get a synthesized `<ADX>:<engine>/<file-stem>` Referring Item so the patterns analyzer's split-on-`:` ADX extraction stays clean
+- Every row carries a `_source` field (the zip file path it came from) for audit
+
+**Calibrated against SCT ground truth** (`UnboundReferences.csv` exported by SCT vs scanner output on the same DACC archive):
+
+| Metric | SCT | Scanner | Delta |
+|---|---|---|---|
+| Total rows | 6,427 | 5,652 | -12% |
+| Unique referring items | 100 | 87 | -13% |
+| Unique referenced items | 4,802 | 5,018 | +4% |
+| Top offender `$site.UserTrees.DACC` | 4,501 | 4,420 | -1.8% |
+
+The 12% delta comes from SCT recording each attribute occurrence as a separate row (e.g. "Action Table 1" and "Action Table 2" both listed when they reference the same dead target); the scanner dedupes those. Bulk-fix decisions are identical.
+
+#### Apply delete to archive
+
+The viewer can now produce a corrected `.dbexport` with selected items removed — not just a CSV that SCT then has to act on.
+
+- `applyDeletesToArchive(arc, items)` removes each item's source XML from a copy of the zip
+- File-level items (graphics, programs, user trees) → file removed cleanly
+- Object-level items (refs inside a device's `archive.xml`) → reported as skipped, with instruction to delete in SCT manually (surgical XML editing of archive.xml is doable later but is riskier)
+- Output is a valid `.dbexport` that imports back into SCT via Restore Archive
+
+**Three entry points** to the same flow:
+1. Action-bar **"Apply delete to archive (.dbexport)"** — bulk, acts on every unique referring item in the current view
+2. Per-row **🗑 Delete this item from archive** button — granular, one item at a time, only on file-level rows
+3. Multi-select via checkboxes (see below) — granular, multiple items, any subset
+
+Each path runs through `exportAppliedDeleteArchive` which shows a categorized confirm dialog (`5 user trees`, `70 graphics`, `11 programming logic blocks`, etc.) and a follow-up summary listing any object-level items that need manual SCT cleanup.
+
+#### Multi-select with filter + checkboxes
+
+The All Rows / By Referring / By Referenced views now support row-level selection.
+
+- Checkbox column on every row
+- Header checkbox **selects every file-level item in the current filter** (not just the capped 2,000 visible rows — important because one item like `$site.UserTrees.DACC` with 4,420 rows would otherwise dominate the cap)
+- Selecting any row syncs sibling rows (other rows for the same referring item visually check too and the row highlights in the accent color)
+- Object-level rows show a disabled checkbox with a tooltip explaining they need SCT-manual cleanup
+- Action bar dynamically shows `N items selected` pill + swaps the bulk button to **"Apply delete to selected (N) (.dbexport)"**
+- "Clear selection" button alongside the pill
+- Selections persist across filter changes (you can filter to "Graphics.Lincoln", select 13 items, switch filter to "Graphics.Cannon", add those too, both groups stay selected)
+
+#### Rename confidence indicator
+
+The patterns view now shows a confidence pill next to each rename suggestion: `✓ 94% of refs land on real objects`. For each suggested rename (e.g. `DACC-ADX-01 → DACC-ADX-02`), we rewrite every unique dead target and check what fraction land on a defined object in the archive. High % = rename hypothesis confirmed; low % = the dead-prefix objects might just be gone, and Apply-to-archive would create different unbound refs.
+
+Three confidence tiers visually:
+- **≥80% green** — rename hypothesis confirmed
+- **50–80% yellow** — shaky, audit before applying
+- **<50% red** — likely wrong target
+
+On DACC: 94% of refs land on real objects after the `DACC-ADX-01 → DACC-ADX-02` rewrite. The 6% that don't are real underlying problems (deleted N2 trunk room sensors, dead NIE controllers, ADX self-references) that would surface as a much smaller unbound list after the bulk repoint — exactly the right workflow.
+
+#### Audit improvements
+
+- `_source` line on every row showing the zip path the ref was found in (audit hook — open that XML in any editor and verify the ref is really there)
+- Categorized warning dialog before any delete-list CSV export (`1 user tree`, `70 graphics`, `16 programming logic blocks`) with a callout steering the tech to Apply-to-archive when a rename pattern exists
+
+#### Strategic significance
+
+The pitch tightens substantially:
+
+- Before: "drop your SCT unbound CSV, click one button, get a bulk fix plan"
+- After: "**drop your `.dbexport`. We scan, classify, score confidence, and emit a corrected `.dbexport` that imports back into SCT directly.** No SCT license needed, no CSV pre-export step, no per-row clicking through thousands of items."
+
+The output is the same `.dbexport` format SCT writes, so the full "scan → audit → fix → re-import" round-trip closes without ever opening SCT until the final restore.
+
 ### v0.3.8 — Controller identity card + Apply repoint to archive (2026-05-14) ✅
 
 Two features triggered by the 2022 forum thread ("Reading .caf files from Metasys without SCT?" — 2.3K views, accepted answer: "you can't"):

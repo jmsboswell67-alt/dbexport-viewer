@@ -1513,6 +1513,7 @@ const state = {
   treeFilter: "",
   unboundPivot: "patterns",
   unboundPivotValue: null,
+  unboundSelected: new Set(),   // Set of Referring Item strings checked for the bulk-delete action
   graphicsPivot: "byGraphic",
   graphicsSelection: null,
   logicSelection: null,
@@ -1824,7 +1825,9 @@ function setMode(mode) {
 function updateModeAvailability() {
   const a = state.archives[0], b = state.archives[1];
   const bothArchives = a && b && a.kind !== "unbound" && b.kind !== "unbound";
-  const hasUnbound = state.archives.some(x => x && x.kind === "unbound");
+  // Unbound mode is available when: a CSV is loaded, an archive has been
+  // scanned already, OR an archive is loaded that we can scan natively.
+  const hasUnbound = state.archives.some(x => x && (x.kind === "unbound" || x.unbound || (x._zip && x.kind !== "unbound")));
   const hasGraphics = state.archives.some(x => x && x._zip && x.kind !== "unbound");
   document.querySelector('[data-mode="diff"]').disabled = !bothArchives;
   document.querySelector('[data-mode="unbound"]').disabled = !hasUnbound;
@@ -2609,17 +2612,31 @@ function getUnboundAnalysis(arc) {
 }
 
 function getUnboundArchive() {
-  // Return the slot's archive currently being viewed for unbound mode
-  for (const slot of [state.selectedSlot, 0, 1]) {
-    const a = state.archives[slot];
-    if (a && a.kind === "unbound") return a;
-  }
+  // Three-tier preference: explicit CSV (kind==="unbound") first, then any
+  // archive that's already been scanned (arc.unbound populated), then any
+  // scannable archive so we can offer to run the native scan.
+  const slots = [state.selectedSlot, 0, 1];
+  for (const s of slots) { const a = state.archives[s]; if (a && a.kind === "unbound") return a; }
+  for (const s of slots) { const a = state.archives[s]; if (a && a.unbound) return a; }
+  for (const s of slots) { const a = state.archives[s]; if (a && a._zip && a.kind !== "unbound") return a; }
   return null;
 }
 
 function renderUnboundTree(root) {
   const arc = getUnboundArchive();
   if (!arc) return;
+  if (!arc.unbound) {
+    // Scannable but not yet scanned — sidebar is empty until the scan runs.
+    addSectionTitle(root, arc.name);
+    const hint = document.createElement("div");
+    hint.className = "tree-node";
+    hint.style.padding = "8px 12px";
+    hint.style.color = "var(--muted)";
+    hint.style.fontFamily = "var(--sans)";
+    hint.textContent = "Click \"Scan now\" in the main panel to populate.";
+    root.appendChild(hint);
+    return;
+  }
   const an = getUnboundAnalysis(arc);
   const q = (state.treeFilter || "").toLowerCase();
 
@@ -2681,8 +2698,12 @@ function renderUnboundDetail(body, crumb, classSel, objSearch) {
 
   const arc = getUnboundArchive();
   if (!arc) {
-    crumb.textContent = "Drop an Unbound References .csv file to begin.";
-    body.innerHTML = `<div class="empty"><div class="big">No unbound CSV loaded</div><div class="small">Drop a Metasys Unbound References .csv file. Required columns: Archive, Reference Type, Referring Item, Referring Attribute, Referenced Item, Referenced Attribute.</div></div>`;
+    crumb.textContent = "Drop a .dbexport or an Unbound References .csv to begin.";
+    body.innerHTML = `<div class="empty"><div class="big">No archive loaded</div><div class="small">Drop a .dbexport — we'll scan it natively for unbound references. Or drop the SCT-exported "Unbound References" .csv if you already have one.</div></div>`;
+    return;
+  }
+  if (!arc.unbound) {
+    renderUnboundScanCTA(body, crumb, arc);
     return;
   }
   const an = getUnboundAnalysis(arc);
@@ -2732,6 +2753,40 @@ function renderUnboundDetail(body, crumb, classSel, objSearch) {
   body.appendChild(renderUnboundTable(rows));
 }
 
+function renderUnboundScanCTA(body, crumb, arc) {
+  crumb.innerHTML = `<strong>${escapeHtml(arc.name)}</strong> · ready to scan`;
+  const wrap = document.createElement("div");
+  wrap.className = "obj-detail";
+  wrap.innerHTML = `
+    <h2 style="font-family: var(--sans); word-break: normal;">Scan archive for unbound references</h2>
+    <div class="meta"><span>No SCT-exported CSV needed. We walk every XML in the archive (plus the Base64Zip-wrapped logic and graphics payloads), collect every ref-shaped string, and flag any whose target isn't defined in this archive.</span></div>
+    <div style="margin-top: 14px;">
+      <button class="btn btn-primary" id="runUnboundScan" style="font-size: 14px;">⚡ Scan now</button>
+      <span id="scanStatus" style="margin-left: 12px; font-family: var(--sans); color: var(--muted);"></span>
+    </div>
+    <div class="meta" style="margin-top: 14px;"><span>Typical scan: 5–30 seconds depending on archive size. Large archives with many Programming / Graphics files (Base64Zip blocks) take longer because each gzipped payload is decoded.</span></div>
+  `;
+  body.appendChild(wrap);
+
+  const btn = wrap.querySelector("#runUnboundScan");
+  const status = wrap.querySelector("#scanStatus");
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    btn.textContent = "Scanning…";
+    try {
+      await analyzeArchiveForUnbound(arc, msg => { status.textContent = msg; });
+      // Refresh the view — getUnboundAnalysis will now find arc.unbound.
+      renderTree();
+      renderDetail();
+    } catch (e) {
+      console.error(e);
+      status.textContent = "Scan failed: " + e.message;
+      btn.textContent = "⚡ Scan now";
+      btn.disabled = false;
+    }
+  });
+}
+
 function renderUnboundPatterns(an) {
   const wrap = document.createElement("div");
   wrap.className = "obj-detail";
@@ -2743,7 +2798,7 @@ function renderUnboundPatterns(an) {
   intro.style.color = "var(--ink-soft)";
   intro.style.maxWidth = "780px";
   intro.style.marginBottom = "20px";
-  intro.textContent = "Unbound references usually come from one of three causes: an ADX/engine rename leaving thousands of refs pointing to the old name, a controller deletion leaving orphaned graphics/programs, or a point rename. Below are the dead reference targets ranked by impact. For each, you can export the affected refs as a CSV for batch repointing in SCT.";
+  intro.textContent = "Unbound references usually come from one of three causes: an ADX/engine rename leaving thousands of refs pointing to the old name, a controller deletion leaving orphaned graphics/programs, or a point rename. Below are the dead reference targets ranked by impact. For each, you can export the affected refs as a CSV for batch repointing in SCT — or, when a rename is the obvious fix, click \"Apply to archive\" to download a corrected .dbexport that imports back into SCT directly (same format SCT writes; restore via SCT's Import Archive workflow).";
   wrap.appendChild(intro);
 
   if (!an.renameSuggestions.length) {
@@ -2775,12 +2830,29 @@ function renderUnboundPatterns(an) {
   tbl.className = "objs";
   tbl.innerHTML = `<thead><tr><th>Dead prefix</th><th>Likely rename target</th><th style="text-align:right;">Refs affected</th><th>Actions</th></tr></thead>`;
   const tbody = document.createElement("tbody");
+  // Resolve the live archive once so we can compute the rename-confidence check
+  const confidenceArc = target ? target.arc : null;
   for (const s of an.renameSuggestions) {
     const tr = document.createElement("tr");
     const canApply = !!target && !!s.to;
+    let pillHtml = "";
+    if (s.to && confidenceArc && confidenceArc._validRefs) {
+      const c = computeRenameConfidence(confidenceArc, s.from, s.to);
+      if (c) {
+        const pct = Math.round(c.pct * 100);
+        let bg = "var(--bad-soft)", fg = "var(--bad)", icon = "✗", verdict = "likely wrong target";
+        if (pct >= 80)      { bg = "var(--good-soft)"; fg = "var(--good)"; icon = "✓"; verdict = "rename hypothesis confirmed"; }
+        else if (pct >= 50) { bg = "#fef3c7"; fg = "#92400e"; icon = "⚠"; verdict = "shaky — audit before applying"; }
+        const sampleNote = c.totalUnique > c.sampleSize ? ` (sampled ${c.sampleSize.toLocaleString()} of ${c.totalUnique.toLocaleString()})` : "";
+        pillHtml = `<div style="margin-top:6px; display:inline-block; padding:3px 8px; border-radius:12px; background:${bg}; color:${fg}; font-size:11px; font-family:var(--sans);" title="${escapeHtml(c.landed.toLocaleString())} of ${escapeHtml(c.sampleSize.toLocaleString())} rewritten refs land on a defined object${sampleNote} — ${escapeHtml(verdict)}">${icon} ${pct}% of refs land on real objects</div>`;
+      }
+    }
     tr.innerHTML = `
       <td class="ref"><span class="leaf">${escapeHtml(s.from)}:</span></td>
-      <td class="ref"><span class="leaf">${s.to ? escapeHtml(s.to) + ":" : "<span style=\"color:var(--ink-dim)\">(no clear match — items may have been deleted, not renamed)</span>"}</span></td>
+      <td class="ref">
+        <span class="leaf">${s.to ? escapeHtml(s.to) + ":" : "<span style=\"color:var(--ink-dim)\">(no clear match — items may have been deleted, not renamed)</span>"}</span>
+        ${pillHtml}
+      </td>
       <td class="cid" style="text-align:right; font-variant-numeric: tabular-nums;"><strong>${s.count.toLocaleString()}</strong></td>
       <td style="display: flex; gap: 4px; flex-wrap: wrap;">
         <button class="export-btn" data-prefix="${escapeHtml(s.from)}" data-target="${s.to ? escapeHtml(s.to) : ''}" data-action="${s.to ? 'plan' : 'delete'}">${s.to ? 'Export plan CSV' : 'Export delete list'}</button>
@@ -2838,19 +2910,41 @@ function renderUnboundActionBar(rows, label) {
   bar.className = "diff-summary";
   bar.style.justifyContent = "space-between";
   bar.style.alignItems = "center";
+  // How many unique referring items in the current view are selected? Only those
+  // visible-in-view counts shape the "delete selected" button — selections from
+  // a prior filter that aren't visible right now are tracked but don't bloat the UI.
+  const visibleReferring = new Set(rows.map(r => r["Referring Item"]));
+  const selectedInView = [...state.unboundSelected].filter(r => visibleReferring.has(r));
+  const hasSelected = selectedInView.length > 0;
   bar.innerHTML = `
-    <div>
+    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
       <span class="diff-pill same"><span class="num">${rows.length.toLocaleString()}</span> rows in view</span>
-      <span style="margin-left: 12px; font-size: 12px; color: var(--ink-soft); font-family: var(--mono);">${escapeHtml(label)}</span>
+      <span style="font-size: 12px; color: var(--ink-soft); font-family: var(--mono);">${escapeHtml(label)}</span>
+      ${hasSelected ? `<span class="diff-pill" style="background: var(--accent-soft); color: var(--accent);"><span class="num">${selectedInView.length.toLocaleString()}</span> item${selectedInView.length === 1 ? "" : "s"} selected</span>
+        <button class="export-btn" id="clearSelected" style="font-size:11px; padding:2px 8px;">Clear selection</button>` : ''}
     </div>
-    <div style="display: flex; gap: 6px;">
+    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
       <button class="export-btn" id="dlFiltered">Download filtered (CSV)</button>
       <button class="export-btn" id="dlDeleteList">Download delete list (CSV)</button>
+      ${hasSelected
+        ? `<button class="export-btn" id="applyDeleteSelected" style="border-color: var(--accent); color: var(--accent); font-weight: 600;">Apply delete to selected (${selectedInView.length}) (.dbexport)</button>`
+        : `<button class="export-btn" id="applyDelete" style="border-color: var(--accent); color: var(--accent); font-weight: 600;">Apply delete to archive (.dbexport)</button>`}
     </div>
   `;
   setTimeout(() => {
     bar.querySelector("#dlFiltered")?.addEventListener("click", () => exportUnboundFiltered(rows));
     bar.querySelector("#dlDeleteList")?.addEventListener("click", () => exportDeleteList(rows, "filtered"));
+    bar.querySelector("#applyDelete")?.addEventListener("click", () => exportAppliedDeleteArchive(rows, label));
+    bar.querySelector("#applyDeleteSelected")?.addEventListener("click", () => {
+      // Build synthetic rows from the selection (only the items still visible
+      // in the current view get acted on, so filter+select pairs are predictable)
+      const synth = selectedInView.map(item => ({ "Referring Item": item }));
+      exportAppliedDeleteArchive(synth, `selected_${selectedInView.length}`);
+    });
+    bar.querySelector("#clearSelected")?.addEventListener("click", () => {
+      state.unboundSelected.clear();
+      renderDetail();
+    });
   }, 0);
   return bar;
 }
@@ -2868,20 +2962,57 @@ function renderUnboundTable(rows) {
     note.textContent = `Showing first ${capped.length.toLocaleString()} of ${rows.length.toLocaleString()}. Filter to narrow. Exports include the full set.`;
     wrap.appendChild(note);
   }
+  // Per-row delete is only meaningful when the row's source is a standalone
+  // file. Archive.xml-sourced rows would need surgical XML editing and are
+  // flagged as SCT-manual instead, and their checkboxes are disabled.
+  const isFileLevel = (src) => src && !/(^|[\\/])archive\.xml$/i.test(src);
+
+  // The header checkbox acts on every file-level referring item in the
+  // current filter — not just the capped 2,000 visible rows. With archives
+  // where one item (like $site.UserTrees.DACC) accounts for thousands of
+  // rows, the cap can be dominated by just a few items, so "select all in
+  // view" feels broken if it's tied to the cap.
+  const eligibleInView = new Set();
+  for (const r of rows) {
+    if (isFileLevel(r._source)) eligibleInView.add(r["Referring Item"]);
+  }
+  const allEligibleSelected = eligibleInView.size > 0 &&
+    [...eligibleInView].every(item => state.unboundSelected.has(item));
+
   const tbl = document.createElement("table");
   tbl.className = "objs";
-  tbl.innerHTML = `<thead><tr><th>Type</th><th>Referring Item · Attribute</th><th>Referenced (dead) Item · Attribute</th></tr></thead>`;
+  tbl.innerHTML = `<thead><tr>
+    <th style="width:28px; text-align:center;"><input type="checkbox" id="hdrSelect" ${allEligibleSelected ? "checked" : ""} title="Select all ${eligibleInView.size.toLocaleString()} file-level items matching the current filter"></th>
+    <th>Type</th>
+    <th>Referring Item · Attribute</th>
+    <th>Referenced (dead) Item · Attribute</th>
+  </tr></thead>`;
   const tbody = document.createElement("tbody");
   for (const r of capped) {
     const tr = document.createElement("tr");
+    const fileLevel = isFileLevel(r._source);
+    const isSelected = state.unboundSelected.has(r["Referring Item"]);
+    if (isSelected) tr.style.background = "var(--accent-soft)";
     const referringLeaf = r["Referring Item"].split(/[\.:\/]/).pop();
     const referencedLeaf = r["Referenced Item"].split(/[\.:\/]/).pop();
+    const sourceLine = r._source
+      ? `<div style="font-size:10px; color:var(--ink-dim); font-family: var(--mono);">source: ${escapeHtml(r._source)}</div>`
+      : "";
+    const deleteBtn = fileLevel
+      ? `<button class="export-btn row-delete" data-referring="${escapeHtml(r["Referring Item"])}" style="margin-top:4px; font-size:11px; padding:2px 8px;">🗑 Delete this item from archive</button>`
+      : (r._source ? `<div style="font-size:10px; color:var(--ink-dim); margin-top:4px; font-style: italic;">object-level — delete in SCT manually</div>` : "");
+    const checkboxCell = fileLevel
+      ? `<input type="checkbox" class="row-select" data-referring="${escapeHtml(r["Referring Item"])}" ${isSelected ? "checked" : ""}>`
+      : `<input type="checkbox" disabled title="Object-level item — must be deleted in SCT manually">`;
     tr.innerHTML = `
+      <td style="text-align:center;">${checkboxCell}</td>
       <td class="cid">${escapeHtml(r["Reference Type"])}</td>
       <td class="ref">
         <div class="leaf">${escapeHtml(referringLeaf)}</div>
         <div class="path" style="font-size:11px;">${escapeHtml(r["Referring Item"])}</div>
         <div style="font-size:11px; color:var(--ink-soft);">attr: <strong>${escapeHtml(r["Referring Attribute"])}</strong></div>
+        ${sourceLine}
+        ${deleteBtn}
       </td>
       <td class="ref">
         <div class="leaf" style="color: var(--bad);">${escapeHtml(referencedLeaf)}</div>
@@ -2891,6 +3022,41 @@ function renderUnboundTable(rows) {
     `;
     tbody.appendChild(tr);
   }
+  setTimeout(() => {
+    wrap.querySelectorAll("button.row-delete").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const referring = btn.dataset.referring;
+        exportAppliedDeleteArchive([{ "Referring Item": referring }], "single_" + (referring.split(/[\.:\/]/).pop() || "item"));
+      });
+    });
+    wrap.querySelectorAll("input.row-select").forEach(cb => {
+      cb.addEventListener("change", () => {
+        const item = cb.dataset.referring;
+        if (cb.checked) state.unboundSelected.add(item);
+        else state.unboundSelected.delete(item);
+        // Sync siblings (other rows for the same item visible in this view)
+        // and the row highlight, without a full re-render
+        wrap.querySelectorAll(`input.row-select[data-referring="${CSS.escape(item)}"]`).forEach(other => {
+          other.checked = cb.checked;
+          const row = other.closest("tr");
+          if (row) row.style.background = cb.checked ? "var(--accent-soft)" : "";
+        });
+        // Refresh the action bar so the count + button label update
+        const oldBar = document.querySelector(".diff-summary");
+        if (oldBar?.nextElementSibling === wrap || oldBar?.parentElement?.contains(wrap)) {
+          renderDetail();
+        }
+      });
+    });
+    wrap.querySelector("#hdrSelect")?.addEventListener("change", (e) => {
+      const turnOn = e.target.checked;
+      for (const item of eligibleInView) {
+        if (turnOn) state.unboundSelected.add(item);
+        else state.unboundSelected.delete(item);
+      }
+      renderDetail();
+    });
+  }, 0);
   tbl.appendChild(tbody);
   wrap.appendChild(tbl);
   return wrap;
@@ -2911,9 +3077,167 @@ function exportUnboundFiltered(rows) {
   downloadBlob(`unbound_filtered_${rows.length}.csv`, "text/csv;charset=utf-8", csv);
 }
 
+// Remove a set of Referring Items from a copy of the archive zip and return
+// the new blob. File-level items (graphics, programs, user trees) are removed
+// by deleting their XML file from the zip. Object-level items (refs whose
+// source is a device's archive.xml) are skipped — surgically editing an
+// archive.xml to remove one <object> while preserving its other thousands of
+// objects is risky and is better done in SCT. The skipped list is returned
+// so the UI can tell the tech which still need manual SCT deletion.
+async function applyDeletesToArchive(arc, itemsToDelete) {
+  if (!arc._zip) throw new Error("Archive not loaded as ZIP — cannot delete.");
+  if (!arc.unbound) throw new Error("Run a scan first so we know where each item lives in the zip.");
+
+  // Map: Referring Item -> first observed source file path (all rows of one item share the same source file)
+  const referringToSource = new Map();
+  for (const r of arc.unbound) {
+    if (r._source && !referringToSource.has(r["Referring Item"])) {
+      referringToSource.set(r["Referring Item"], r._source);
+    }
+  }
+
+  const fileDeletions = new Set();
+  const skippedObjects = [];
+  const notFound = [];
+  for (const item of itemsToDelete) {
+    const src = referringToSource.get(item);
+    if (!src) { notFound.push(item); continue; }
+    if (/(^|[\\/])archive\.xml$/i.test(src)) {
+      skippedObjects.push({ item, source: src });
+      continue;
+    }
+    fileDeletions.add(src);
+  }
+
+  if (fileDeletions.size === 0) {
+    return { blob: null, deletedFiles: [], skippedObjects, notFound };
+  }
+
+  const buf = await arc._zip.generateAsync({ type: "uint8array" });
+  const zip = await JSZip.loadAsync(buf);
+  for (const path of fileDeletions) {
+    // Try the path as-stored first, then with normalized separators as a fallback.
+    zip.remove(path);
+    zip.remove(path.replace(/\\/g, "/"));
+    zip.remove(path.replace(/\//g, "\\"));
+  }
+  const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+  return { blob, deletedFiles: [...fileDeletions], skippedObjects, notFound };
+}
+
+// User-facing wrapper that confirms, runs the delete, downloads the result,
+// and reports skipped object-level items so the tech knows what still needs
+// to be cleaned up manually in SCT.
+async function exportAppliedDeleteArchive(rows, label) {
+  const items = [...new Set(rows.map(r => r["Referring Item"]))];
+  if (!items.length) return;
+
+  const tgt = findArchiveForTransform();
+  if (!tgt) { alert("No source archive loaded — drop a .dbexport into slot A or B first."); return; }
+
+  // Pre-classify so we can show an accurate breakdown in the confirm dialog
+  const referringToSource = new Map();
+  for (const r of tgt.arc.unbound || []) {
+    if (r._source && !referringToSource.has(r["Referring Item"])) {
+      referringToSource.set(r["Referring Item"], r._source);
+    }
+  }
+  let fileCount = 0, objectCount = 0, notFoundCount = 0;
+  for (const item of items) {
+    const src = referringToSource.get(item);
+    if (!src) { notFoundCount++; continue; }
+    if (/(^|[\\/])archive\.xml$/i.test(src)) objectCount++;
+    else fileCount++;
+  }
+  const cat = categorizeReferringItems(items);
+  const catLines = [];
+  if (cat.userTrees)   catLines.push(`  • ${cat.userTrees} user tree${cat.userTrees === 1 ? "" : "s"}`);
+  if (cat.graphics)    catLines.push(`  • ${cat.graphics} graphics`);
+  if (cat.programming) catLines.push(`  • ${cat.programming} programming logic block${cat.programming === 1 ? "" : "s"}`);
+  if (cat.sysPrograms) catLines.push(`  • ${cat.sysPrograms} system program${cat.sysPrograms === 1 ? "" : "s"}`);
+  if (cat.schedules)   catLines.push(`  • ${cat.schedules} schedule${cat.schedules === 1 ? "" : "s"}`);
+  if (cat.other)       catLines.push(`  • ${cat.other} other`);
+
+  const lines = [
+    `Apply delete to archive — produce a new .dbexport with ${items.length.toLocaleString()} item${items.length === 1 ? "" : "s"} removed from ${tgt.arc.name}.`,
+    "",
+    "What would be deleted:",
+    ...catLines,
+    "",
+    "Outcome:",
+    `  • ${fileCount} file-level item${fileCount === 1 ? "" : "s"} (graphics / programs / user trees) — removed from the zip`,
+  ];
+  if (objectCount) lines.push(`  • ${objectCount} object-level item${objectCount === 1 ? "" : "s"} (inside a device's archive.xml) — SKIPPED, must be deleted in SCT manually after import`);
+  if (notFoundCount) lines.push(`  • ${notFoundCount} item${notFoundCount === 1 ? "" : "s"} not located in scan results — SKIPPED`);
+  lines.push("", "Output is a new .dbexport you can review or import via SCT's Restore Archive.", "", "Continue?");
+
+  if (!confirm(lines.join("\n"))) return;
+
+  try {
+    const result = await applyDeletesToArchive(tgt.arc, items);
+    if (!result.blob) {
+      alert(`No file-level items were deleted. ${result.skippedObjects.length} object-level item${result.skippedObjects.length === 1 ? "" : "s"} would need manual SCT deletion.`);
+      return;
+    }
+    const fname = tgt.arc.name.replace(/\.dbexport$/i, "") + `_deleted_${cleanFilename(label)}_${result.deletedFiles.length}.dbexport`;
+    downloadBlob(fname, "application/zip", await result.blob.arrayBuffer());
+
+    let summary = `✓ Removed ${result.deletedFiles.length} file${result.deletedFiles.length === 1 ? "" : "s"} from ${tgt.arc.name}.\nDownloaded: ${fname}`;
+    if (result.skippedObjects.length) {
+      const sample = result.skippedObjects.slice(0, 8).map(s => "  • " + s.item).join("\n");
+      const more = result.skippedObjects.length > 8 ? `\n  • …and ${result.skippedObjects.length - 8} more` : "";
+      summary += `\n\nSkipped ${result.skippedObjects.length} object-level item${result.skippedObjects.length === 1 ? "" : "s"} (need manual SCT delete):\n${sample}${more}`;
+    }
+    alert(summary);
+  } catch (e) {
+    console.error(e);
+    alert("Apply delete failed: " + e.message);
+  }
+}
+
+function categorizeReferringItems(items) {
+  const b = { userTrees: 0, graphics: 0, programming: 0, schedules: 0, sysPrograms: 0, other: 0 };
+  for (const item of items) {
+    // Strip the "<ADX>:<engine>/" prefix to inspect the category segment
+    const slashIdx = item.indexOf("/");
+    const tail = slashIdx >= 0 ? item.slice(slashIdx + 1) : item;
+    if (tail.startsWith("$site.UserTrees")) b.userTrees++;
+    else if (tail.startsWith("Graphics.")) b.graphics++;
+    else if (tail.startsWith("Programming.")) b.programming++;
+    else if (tail.startsWith("System Programs.")) b.sysPrograms++;
+    else if (tail.startsWith("Schedule")) b.schedules++;
+    else b.other++;
+  }
+  return b;
+}
+
 function exportDeleteList(rows, label) {
   // Output one row per UNIQUE Referring Item — the items the user would delete in SCT
   const items = [...new Set(rows.map(r => r["Referring Item"]))];
+  if (!items.length) return;
+  const b = categorizeReferringItems(items);
+  const breakdown = [];
+  if (b.userTrees)   breakdown.push(`  • ${b.userTrees} user tree${b.userTrees === 1 ? "" : "s"} (custom navigation)`);
+  if (b.graphics)    breakdown.push(`  • ${b.graphics} graphics`);
+  if (b.programming) breakdown.push(`  • ${b.programming} programming logic block${b.programming === 1 ? "" : "s"}`);
+  if (b.sysPrograms) breakdown.push(`  • ${b.sysPrograms} system program${b.sysPrograms === 1 ? "" : "s"}`);
+  if (b.schedules)   breakdown.push(`  • ${b.schedules} schedule${b.schedules === 1 ? "" : "s"}`);
+  if (b.other)       breakdown.push(`  • ${b.other} other`);
+
+  const msg = [
+    `Delete list export — ${items.length.toLocaleString()} unique item${items.length === 1 ? "" : "s"} will be written to CSV.`,
+    "",
+    "Breakdown of what would be deleted in SCT:",
+    ...breakdown,
+    "",
+    "Importing this list into SCT for a bulk-delete REMOVES these items from your archive — graphics, programs, and user trees disappear entirely, not just the broken refs inside them.",
+    "",
+    "If the unbound refs come from an ADX rename (e.g. DACC-ADX-01 → DACC-ADX-02), use \"Apply to archive\" instead — it repoints every broken ref while keeping every item intact.",
+    "",
+    "Continue with the delete list export?",
+  ].join("\n");
+  if (!confirm(msg)) return;
+
   const csv = [csvRow(["Item to delete"]), ...items.map(i => csvRow([i]))].join("\n") + "\n";
   downloadBlob(`delete_list_${cleanFilename(label)}_${items.length}.csv`, "text/csv;charset=utf-8", csv);
 }
@@ -3029,6 +3353,207 @@ async function applyRepointToArchive(arc, fromPrefix, toPrefix) {
 
   const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
   return { blob, totalReplacements, filesTouched };
+}
+
+// ============ Native unbound-ref scanner ============
+// Walks every XML in arc._zip (plus Base64Zip-wrapped payloads) and collects
+// every ref-shaped substring whose target isn't in the archive's defined ref
+// set. Output rows match the SCT "Unbound References" CSV shape so the
+// existing analyzer + Apply-to-archive pipeline works without changes.
+//
+// Pragmatics:
+// - We attribute refs found in archive.xml per-object/per-property (best fidelity).
+// - For other XMLs ($site.UserTrees, security, userdictionary, Programming, ...),
+//   we synthesize a Referring Item from the filename stem.
+// - We dedupe at (referring, attr, referenced) so we don't double-count when
+//   the same ref appears many times in one property payload.
+// - The match regex is conservative: it allows the chars Metasys actually uses
+//   in real refs and stops at XML/attribute boundaries. Some pathological cases
+//   (two refs jammed together with no separator) may over-consume by a word;
+//   those still surface in the right ADX-prefix pattern bucket, so the
+//   bulk-fix UX is unaffected.
+// ADX/Engine: no spaces (real Metasys hostnames don't contain them — DACC-NAE35-BCC, etc).
+// Path: spaces allowed because real path segments do (e.g. "Programming.OAT SHARE", "N2 Trunk 1.CT-AHU-4 FEC-17").
+const REF_MATCH_RE = /([A-Za-z0-9][A-Za-z0-9_\-]{0,79}):([A-Za-z0-9][A-Za-z0-9_\-]{0,79})\/([A-Za-z0-9_\-.$ ()]{1,500})/g;
+
+async function analyzeArchiveForUnbound(arc, onProgress) {
+  if (!arc._zip) throw new Error("Archive not loaded as ZIP — cannot scan.");
+  if (arc._derivedUnboundRows) return arc._derivedUnboundRows;
+
+  // 1) Build:
+  //   - validRefs: the universe of defined refs (anything an object actually defines)
+  //   - definedEngines: set of engine-portion names — used to reject false positives
+  //     where the regex captured an engine string as the ADX prefix
+  //   - folderToDeviceCtx: maps each device's zip folder to its "<ADX>:<engine>"
+  //     prefix, so we can synthesize sensible Referring Items for non-archive.xml files
+  const validRefs = new Set();
+  const definedEngines = new Set();
+  const folderToDeviceCtx = new Map();
+  for (const dev of arc.devices) {
+    let ctx = null;
+    for (const obj of dev.objects) {
+      if (!obj.ref) continue;
+      validRefs.add(obj.ref);
+      const colonIdx = obj.ref.indexOf(":");
+      if (colonIdx < 0) continue;
+      const slashIdx = obj.ref.indexOf("/", colonIdx + 1);
+      const engine = slashIdx >= 0 ? obj.ref.slice(colonIdx + 1, slashIdx) : obj.ref.slice(colonIdx + 1);
+      if (engine) definedEngines.add(engine);
+      if (!ctx) ctx = obj.ref.slice(0, colonIdx) + ":" + engine;
+    }
+    if (ctx && dev.folder) {
+      folderToDeviceCtx.set(dev.folder, ctx);
+      folderToDeviceCtx.set(dev.folder.replace(/\\/g, "/"), ctx);
+    }
+  }
+
+  const seen = new Set();
+  const rows = [];
+  const pushRow = (referringItem, referringAttr, candidate, sourceFile) => {
+    let ref = candidate.replace(/[\s.,;:)\]]+$/, "");
+    if (!ref.includes("/") || !ref.includes(":")) return;
+    const adx = ref.split(":", 1)[0];
+    if (!/[A-Za-z]/.test(adx)) return;        // pure-digit prefix = IP/timestamp fragment
+    if (adx === "data") return;                // inline data URL (data:image/png/...) from graphics assets
+    if (definedEngines.has(adx)) return;       // engine-as-ADX false positive
+    if (validRefs.has(ref)) return;
+    const key = referringItem + "|" + referringAttr + "|" + ref;
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push({
+      "Archive": arc.name,
+      "Reference Type": "Reference",
+      "Referring Item": referringItem,
+      "Referring Attribute": referringAttr,
+      "Referenced Item": ref,
+      "Referenced Attribute": "",
+      "_source": sourceFile,
+    });
+  };
+
+  // 2) Per-object/per-property scan against the already-parsed devices.
+  if (onProgress) onProgress("Scanning archive objects…");
+  let scannedObjects = 0;
+  for (const dev of arc.devices) {
+    const sourceFile = (dev.folder ? dev.folder + "/" : "") + "archive.xml";
+    for (const obj of dev.objects) {
+      for (const [propId, rawXml] of Object.entries(obj.properties || {})) {
+        if (!rawXml || rawXml.indexOf(":") < 0) continue;
+        REF_MATCH_RE.lastIndex = 0;
+        let m;
+        while ((m = REF_MATCH_RE.exec(rawXml)) !== null) {
+          pushRow(obj.ref, propLabel(propId), m[0], sourceFile);
+        }
+      }
+      scannedObjects++;
+    }
+  }
+
+  // 3) Walk every other XML file that lives inside a known device folder.
+  // Files at the archive root (archiveobject.xml, navtree.xml, Cdm*.xml) are
+  // metadata/ontology — not where unbound point/graphic refs live, and they
+  // produced confusing "Live ADX" entries when their filenames leaked through
+  // as Referring Items. Skipping them is the right call.
+  const buf = await arc._zip.generateAsync({ type: "uint8array" });
+  const zip = await JSZip.loadAsync(buf);
+  const xmlPaths = [];
+  zip.forEach((path, entry) => {
+    if (entry.dir) return;
+    if (!/\.xml$/i.test(path)) return;
+    if (/(^|[\\/])archive\.xml$/i.test(path)) return;        // covered by per-object pass
+    // security.xml and userdictionary.xml contain credential hashes and
+    // local text labels, not refs to fix. Their base62-shaped hash tokens
+    // match the ref regex by accident (e.g. "18A:BHlOM5rrB9azAov/5xAkFw").
+    if (/(^|[\\/])security\.xml$/i.test(path)) return;
+    if (/(^|[\\/])userdictionary\.xml$/i.test(path)) return;
+    const norm = path.replace(/\\/g, "/");
+    const folder = norm.replace(/\/[^/]+$/, "");
+    if (!folderToDeviceCtx.has(folder)) return;              // archive-root metadata — skip
+    xmlPaths.push(path);
+  });
+
+  for (let i = 0; i < xmlPaths.length; i++) {
+    const path = xmlPaths[i];
+    if (onProgress && (i % 10 === 0)) {
+      onProgress(`Scanning ${i + 1}/${xmlPaths.length} device files… (${rows.length.toLocaleString()} unbound so far)`);
+      await new Promise(r => setTimeout(r, 0));
+    }
+    const entry = zip.file(path);
+    if (!entry) continue;
+    let text;
+    try { text = await entry.async("string"); } catch (e) { continue; }
+
+    // Synthesize Referring Item as "<ADX>:<engine>/<file-stem>" so the
+    // patterns analyzer's ADX-split logic gets the real ADX out, not a
+    // filename like "MasterLayer" or "Programming.XXX".
+    const norm = path.replace(/\\/g, "/");
+    const folder = norm.replace(/\/[^/]+$/, "");
+    const stem = norm.replace(/^.*\//, "").replace(/\.xml$/i, "");
+    const ctx = folderToDeviceCtx.get(folder);
+    const fileLabel = ctx + "/" + stem;
+
+    // 3a) Outer XML scan — but FIRST strip every Base64Zip block. Their
+    // gzip+base64 payload bytes can happen to match the ref regex and
+    // produce nonsense rows like "bXBzYWx0:..." that polluted the patterns
+    // view. We rescan their decoded contents in step 3b.
+    const outerText = text.replace(/<Base64Zip[^>]*>[\s\S]*?<\/Base64Zip>/g, "");
+    if (outerText.indexOf(":") >= 0) {
+      REF_MATCH_RE.lastIndex = 0;
+      let m;
+      while ((m = REF_MATCH_RE.exec(outerText)) !== null) {
+        pushRow(fileLabel, "(file content)", m[0], path);
+      }
+    }
+
+    // 3b) Decoded Base64Zip payloads (Programming logic, Graphics bindings)
+    if (text.indexOf("<Base64Zip") >= 0) {
+      const blockRe = /<Base64Zip[^>]*>([\s\S]*?)<\/Base64Zip>/g;
+      let bm;
+      while ((bm = blockRe.exec(text)) !== null) {
+        const b64 = bm[1].trim();
+        if (!b64) continue;
+        let inner;
+        try { inner = await gunzipText(b64); } catch (e) { continue; }
+        if (inner.indexOf(":") < 0) continue;
+        REF_MATCH_RE.lastIndex = 0;
+        let im;
+        while ((im = REF_MATCH_RE.exec(inner)) !== null) {
+          pushRow(fileLabel, "(logic / graphic binding)", im[0], path);
+        }
+      }
+    }
+  }
+
+  if (onProgress) onProgress(`Scan complete: ${rows.length.toLocaleString()} unbound references found across ${scannedObjects.toLocaleString()} objects and ${xmlPaths.length.toLocaleString()} device files.`);
+
+  arc._derivedUnboundRows = rows;
+  arc._validRefs = validRefs;          // used by the rename-confidence check in the patterns view
+  arc.unbound = rows;
+  delete arc._unboundAnalysis;
+  return rows;
+}
+
+// For a rename suggestion (fromPrefix -> toPrefix), rewrite every unique
+// dead target and check what fraction land on a defined object in this
+// archive. High % = the rename hypothesis is right. Low % = same-ADX
+// deletions, not a rename — Apply-to-archive would just shuffle the broken refs.
+function computeRenameConfidence(arc, fromPrefix, toPrefix) {
+  if (!arc._validRefs || !toPrefix) return null;
+  const fromColon = fromPrefix + ":";
+  const toColon = toPrefix + ":";
+  const targets = new Set();
+  for (const r of arc.unbound) {
+    if (r["Referenced Item"].startsWith(fromColon)) targets.add(r["Referenced Item"]);
+  }
+  const unique = [...targets];
+  // Set lookups are O(1) — even tens of thousands runs in single-digit ms.
+  let landed = 0;
+  for (let i = 0; i < unique.length; i++) {
+    const rewritten = toColon + unique[i].slice(fromColon.length);
+    if (arc._validRefs.has(rewritten)) landed++;
+  }
+  const N = unique.length;
+  return { landed, sampleSize: N, totalUnique: N, pct: N ? landed / N : 0 };
 }
 
 function exportRepointPlan(rows, fromPrefix, toPrefix) {
