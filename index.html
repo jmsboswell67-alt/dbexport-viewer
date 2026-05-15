@@ -668,6 +668,7 @@ const CLASS_NAMES = {
   20: "Trend Log",
   21: "Life Safety Point",
   129: "BACnet Protocol Eng",
+  130: "Logic Block (Programming)",     // empirical: appears under Programming.X.$NNNN
   135: "Subscription Server",
   141: "JCI MV",
   143: "AV/Calc",
@@ -683,7 +684,9 @@ const CLASS_NAMES = {
   165: "Analog Reference",
   168: "Logic Program",
   172: "Multistate Alarm",
+  173: "BBMD",                          // empirical: ref "BBMD" under engines
   176: "Folder",
+  177: "Logic Program",                 // empirical: "Programming.OAT SHARE" etc.
   185: "NAE-55 Engine",
   192: "NAE-45 Engine",
   193: "NCE-35 Engine",
@@ -693,6 +696,7 @@ const CLASS_NAMES = {
   197: "Field Equipment Controller (FEC)",
   200: "XL5K Integration",
   210: "Wireless Supervisor",
+  257: "Logic Sub-block",               // empirical: Programming sub-objects
   263: "Schedule",
   264: "Calendar",
   274: "Analog Totalization",
@@ -703,26 +707,39 @@ const CLASS_NAMES = {
   286: "Site Object",
   290: "N2 Trunk",
   292: "Eth/IP DataLink",
+  326: "Logic Sub-block",               // empirical: Programming sub-objects
+  327: "Logic Sub-block",               // empirical
+  328: "Logic Sub-block",               // empirical
+  329: "Logic Sub-block",               // empirical
   336: "Logic Block",
   337: "Logic Sub-block",
   338: "Logic Wire",
   342: "Logic Parameter",
   344: "Graphic",
+  345: "Trend Study",                   // empirical: refs like "Trends.Court Rooms", "$FacilityTrendStudies"
   346: "N1 Integration",
+  348: "User Tree",                     // empirical: $site.UserTrees.X
   349: "LON Trunk",
   351: "LON AI",
   352: "LON AO",
   357: "Graphic Bindings",
   358: "NIE",
+  362: "Logic Sub-block",               // empirical: Programming/Energy sub-objects
   425: "ADX Server",
   426: "Vendor Integration",
   448: "NCE-25 (SMARC)",
   455: "FXSNC (SMARC)",
   500: "BACnet AI (legacy class)",
+  501: "BACnet Analog Output",          // empirical: "Analog Outputs.AO-0"
   502: "BACnet Analog Value",
   503: "BACnet BI",
+  504: "BACnet Binary Output",          // empirical: "Binary Outputs.BO-1", desc "Binary Output 1"
   505: "BACnet Binary Value",
   508: "BACnet TEC Device",
+  511: "BACnet Group",                  // empirical: "FCB.Device-NNNNNN.Group-NN"
+  513: "BACnet Multistate Input",       // empirical: "MI-19", desc "Normal/On/Override"
+  514: "BACnet Multistate Output",      // empirical: "MO-1", desc "Occ"
+  515: "Notification Class",            // empirical: desc "NotificationClass1/2/3"
   519: "BACnet Schedule",
   599: "FEC Analog Value",
   600: "FEC Binary Output",
@@ -741,14 +758,18 @@ const CLASS_NAMES = {
   660: "MV Load Extension",
   699: "Summary Definition",
   751: "NAE-45L Engine",
+  763: "BACnet Event Enrollment",       // empirical: ref "...Notification" on TECs/devices
   805: "Equipment",
   806: "Space",
   807: "Definition Link",
+  844: "Facility Graphic Asset",        // empirical: refs "$FacilityGraphics.00001.<timestamp>-<hash>"
+  847: "Generic Archive Container",     // empirical: "$GenericArchive.GraphicAssets"
   863: "IP Field Device",
   871: "NAE-45 (SMARC)",
   872: "NAE-35 (SMARC)",
   873: "NAE-45-1L (SMARC)",
   877: "NAE-55 (SMARC)",
+  909: "FC Bus (MS/TP Trunk)",          // empirical: ref "...FC Bus", desc "FC Bus"
   2000: "Archive Root",
   2004: "Site Configuration",
   2006: "Controller Templates",

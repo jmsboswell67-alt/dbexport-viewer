@@ -90,6 +90,48 @@ Reference files kept in `references/` (gitignored — never redistribute):
 2. Building up the dictionary empirically by harvesting Description→Class associations across multiple .caf samples
 3. Capturing `GetClassInfoRmtCmd` response from a live engine
 
+### v0.3.9 — Empirical dictionary expansion from cross-archive harvest (2026-05-14) ✅
+
+Cross-archive inventory across 8 dbexports (DACC × 2, Ottawa Cal City, Peoria County × 4, SIU Med) found:
+- 118 distinct class IDs in the wild (we had names for 64)
+- 625 distinct property IDs (we had names for 41 of them by frequency)
+
+Added 20 empirical class IDs by usage-pattern inference:
+- **130, 257, 326, 327, 328, 329, 362** — Logic Sub-block (Programming sub-objects, refs like `Programming.X.$NNNN`)
+- **173** — BBMD (BACnet Broadcast Management Device)
+- **177** — Logic Program (`Programming.OAT SHARE` etc.)
+- **345** — Trend Study (refs like `Trends.Court Rooms`, `$FacilityTrendStudies.*`)
+- **348** — User Tree (refs like `$site.UserTrees.X`)
+- **501** — BACnet Analog Output (refs like `Analog Outputs.AO-0`)
+- **504** — BACnet Binary Output
+- **511** — BACnet Group (refs like `Device-NNNNNN.Group-NN`)
+- **513** — BACnet Multistate Input (descriptions "Normal/On/Override")
+- **514** — BACnet Multistate Output (`MO-1`, desc "Occ")
+- **515** — Notification Class (descriptions "NotificationClass1/2/3")
+- **763** — BACnet Event Enrollment (refs ending in `.Notification`)
+- **844** — Facility Graphic Asset (`$FacilityGraphics.00001.<timestamp>-<hash>`)
+- **847** — Generic Archive Container (`$GenericArchive.GraphicAssets`)
+- **909** — FC Bus (MS/TP Trunk) (description "FC Bus")
+
+Verified against the Peoria archive that triggered the audit: 14/14 named classes resolve correctly. Long tail of ~9 unnamed classes (cid 161, 340, 343, 661, 758, 907, 908, 2009, 2013) remains — these need authoritative sources to confirm.
+
+Inline source attribution on each empirical entry says "// empirical: <usage pattern>" — so future maintainers can verify against new data.
+
+### Known gap: properties
+
+The cross-archive inventory found 524 still-unknown property IDs. The top ones by frequency:
+- prop=4306 (75K occurrences) on Analog Reference / Logic Program / FEC AI — likely a Source/Reference attribute
+- prop=3135 (68K) on FEC AI/BI/BO — universal point status?
+- prop=721 (52K) on Programming / Analog Reference
+- prop=52 (50K) on Analog Reference / FEC AI/AV
+- prop=352 (42K) on Trend Extension / FEC AI/BO
+
+These weren't added because property names are ambiguous from class context alone — confusing the user with wrong names is worse than honest "Property N" placeholders. Filling these requires either:
+1. A captured engine response from `GetClassInfoRmtCmd` (live ADX needed)
+2. Decompiling `MetasysUI.jar` for hardcoded property name constants
+
+Logged as future work; not blocking signal-test.
+
 ### v0.3.8 — Controller identity card + Apply repoint to archive (2026-05-14) ✅
 
 Two features triggered by the 2022 forum thread ("Reading .caf files from Metasys without SCT?" — 2.3K views, accepted answer: "you can't"):

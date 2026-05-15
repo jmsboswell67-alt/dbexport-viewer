@@ -7,6 +7,8 @@ references/extracted/
 references/dictionary.json
 references/dictionary_from_commands.json
 references/dict_js_block.js
+references/unknowns_report.md
+references/unknowns_inventory.json
 
 # Scratch / test artifacts
 .tmp_*.py
