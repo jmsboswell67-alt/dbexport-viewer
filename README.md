@@ -2,9 +2,15 @@
 
 **Read, audit, diff, and bulk-fix Metasys SCT archives without SCT, CCT, PCT, or a JCI service visit.**
 
+**▶ [Try it now — live demo](https://jmsboswell67-alt.github.io/dbexport-viewer/)**
+
 A single-file, offline, browser-based viewer for Johnson Controls Metasys
 `.dbexport` archives and `.caf` controller files. Open a file you already have,
 get the information SCT would charge a service call for.
+
+The live demo above runs the latest `main` directly in your browser. Your files
+are parsed locally — nothing is uploaded. Want to run offline? Download
+`index.html` from this repo and open it directly.
 
 > ⚠️ Not affiliated with, endorsed by, or supported by Johnson Controls.
 > "Metasys", "SCT", "CCT", "ADX", "NAE", "NCE", "SNE", and "FEC" are trademarks
@@ -51,11 +57,15 @@ parsed locally and never leave your machine.
 
 ## Quick start
 
+**Easiest:** click the [live demo](https://jmsboswell67-alt.github.io/dbexport-viewer/) and drop a `.dbexport`, `.caf`, or unbound-references `.csv` onto the page. Done.
+
+**Offline / self-hosted:**
+
 1. Download `index.html` from this repo (or clone and open it).
 2. Open it in any modern browser (Chrome, Edge, Firefox, Safari).
 3. Drag a `.dbexport`, `.caf`, or unbound-references `.csv` onto the page.
 
-That's it. No install, no signup, no internet required after download.
+No install, no signup, no internet required after download. Your files never leave your machine in either mode.
 
 **Typical workflows:**
 - **"What's in this archive?"** — drop the file, browse the tree. Click any object for full property detail and reverse-lookup of what references it.
