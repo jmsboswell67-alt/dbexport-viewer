@@ -132,6 +132,44 @@ These weren't added because property names are ambiguous from class context alon
 
 Logged as future work; not blocking signal-test.
 
+### v0.3.11 — CCT logic block dictionary harvest from tcollins2 (2026-05-16) ✅
+
+Community contribution. u/tcollins2 on r/BuildingAutomation dumped their
+internal CCT class-ID database (~80 entries) and visually confirmed at
+least one with a CCT screenshot (526 = Input Float Block, shown wired up
+in their CCT session).
+
+Integrated **59 new class IDs** into `CLASS_NAMES` (skipping the ~20 we
+already had):
+
+- **The long-standing CCT logic block gap is now closed.** Punchlist
+  has flagged 526, 528, 555, 556, 561, 568, 658-660 as "needs
+  authoritative source" since session one. We now have authoritative
+  names for all of them and dozens more (538, 539, 540, 541, 543,
+  546, 558, 559, 561, 562, 569, 571, 573, 574, 581, 582, 584, 585,
+  587, 591, 592, 593, 595, 612, 614).
+- **Equipment classes** previously unknown: 631 VAV Balancer,
+  701-709 series (Device Enable / Equipment Interlock / Device
+  Alarm / Capacity Calculation / Load Calculator / Blocking
+  Protection / Pump Selector / Chiller Selector), 715/716 Analog &
+  Binary Override Check, 745 Tower Selector, 768 Heat Exchanger
+  Selector, 798 Global Sequencer, 916-918 Device/Boiler/Chiller
+  Stager classes.
+- **Controller infrastructure** classes: 862 IP_FEC (controller
+  device root object — common in newer FEC firmware), 670-674 RIO
+  DEV / RAI / RAO / RBI / RBO (remote I/O devices), 640 RDDEV
+  (Local Controller Display).
+
+Total class-name dictionary: **310 entries** (was 251). Property
+dictionary unchanged for now — tcollins is generating CAFs to
+verify the property side next.
+
+Strategic significance: this is the first community contribution
+of substantial proprietary-style internal data. tcollins offered
+it ~24 hours after the Reddit post went live, and the contributor
+relationship started with no prompting beyond the original post.
+That's the network effect kicking in.
+
 ### v0.3.10 — Native unbound-ref scanner + delete-to-archive workflow (2026-05-15) ✅
 
 Big session. Closed the most obvious gap in the signal-test pitch (the "mass-correct unbound refs" workflow used to require an SCT-generated Unbound References CSV — anyone without SCT was stuck), then built out the full audit + fix + verify loop.
