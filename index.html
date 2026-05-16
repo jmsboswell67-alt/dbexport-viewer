@@ -1274,6 +1274,23 @@ const PROP_NAMES = {
   64603: "ADS Dialup - ISPUsername",
   64786: "Override Expiration Time",
   64787: "Out of Service Expiration Time",
+
+  // ===== Top mystery property IDs identified by tcollins2 =====
+  // Source: u/tcollins2 on r/BuildingAutomation, May 2026. These were the
+  // five highest-frequency unnamed properties in real archives (50K+
+  // occurrences each). All five now named:
+  //   4306 - Stored Event Enable: event alarm config flag on nearly every point
+  //   3135 - Run In First Group: CCT execution scheduling, controls scan group
+  //   721  - Restore Command Priority: BACnet commandable object restore-to-default
+  //   52   - Limit Enable: high/low alarm limit enable flag
+  //   352  - Event Message Texts Config: alarm text strings. Per tcollins, also
+  //          appears as stringProp on some class types — a schema variation
+  //          worth flagging for the parser if it ever stops decoding cleanly.
+  52: "Limit Enable",
+  352: "Event Message Texts Config",
+  721: "Restore Command Priority",
+  3135: "Run In First Group",
+  4306: "Stored Event Enable",
 };
 
 // ============ CSV parser (RFC 4180 subset) ============

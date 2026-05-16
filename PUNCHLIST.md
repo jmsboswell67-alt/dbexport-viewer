@@ -132,6 +132,40 @@ These weren't added because property names are ambiguous from class context alon
 
 Logged as future work; not blocking signal-test.
 
+### v0.3.12 — Top mystery properties named (tcollins2, second pass) (2026-05-16) ✅
+
+Same contributor, same day. tcollins2 came back with the top-five
+mystery property IDs — the ones the cross-archive inventory called
+out as having 50K+ occurrences each and zero naming:
+
+| Prop | Name | Notes from tcollins |
+|---|---|---|
+| 4306 | Stored Event Enable | Event alarm config flag on nearly every point |
+| 3135 | Run In First Group | CCT execution scheduling — controls scan group a logic block runs in |
+| 721  | Restore Command Priority | BACnet commandable object restore-to-default priority |
+| 52   | Limit Enable | High/low alarm limit enable flag |
+| 352  | Event Message Texts Config | Alarm text strings; also appears as `stringProp` on some class types, schema variation worth flagging |
+
+That's the entire top-frequency unnamed-property table from the
+punchlist closed in one comment. Highest-impact dictionary
+contribution this project has received — property naming reaches
+every Object Detail panel, every audit row, every export.
+
+tcollins also signaled significantly broader engagement:
+- Working on a GitHub branch to PR additional property IDs
+  ("I think I have all of the properties identified")
+- Going to **merge their own diagnostics tool into dbexport-viewer**
+  on that branch
+- Bringing basic CAF property-value editing (point name + default
+  value edits) — a feature dbexport-viewer doesn't currently have
+- Offered live engine access at some point (SNC + NCE + NAE rig at
+  home, one busted) for running enum capture API calls directly,
+  pending home network security pass
+- Their tool was internally named **OCT — Open Configuration Tool**,
+  a wink at JCI's three-letter-acronym pattern (SCT, CCT, PCT)
+
+This is co-maintainer-level engagement, not casual contribution.
+
 ### v0.3.11 — CCT logic block dictionary harvest from tcollins2 (2026-05-16) ✅
 
 Community contribution. u/tcollins2 on r/BuildingAutomation dumped their
