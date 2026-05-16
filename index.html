@@ -760,12 +760,21 @@ const CLASS_NAMES = {
   227: "BACnet Electric Demand Monitoring",
   228: "BACnet Electric Demand Control",
   236: "Local Application",
+  239: "BO HW Output",        // CCT: physical binary output (relay/triac); Primitives.xml
+  240: "AI HW Input",         // CCT: physical analog input (0-10V/4-20mA/thermistor); Primitives.xml
+  241: "AO HW Output",        // CCT: physical analog output (0-10V/4-20mA); Primitives.xml
+  242: "BI HW Input",         // CCT: physical binary/digital input (dry contact); Primitives.xml
+  243: "CI HW Input",         // CCT: counter/pulse input; Primitives.xml
   245: "N1 Program Control",
   249: "Solar Clock",
+  251: "PAO",                 // CCT: Primitives.xml
+  252: "PID",                 // CCT: Proportional-Integral-Derivative controller; Primitives.xml
   255: "Diagnostic",
   257: "Logic Sub-block",
+  259: "DAO",                 // CCT: Primitives.xml
   263: "JCI Schedule",
   264: "JCI Loop",
+  266: "EWMA",                // CCT: Exponentially Weighted Moving Average filter; Primitives.xml
   274: "Analog Totalization",
   275: "Runtime Totalization",
   276: "Event Totalization",
@@ -851,6 +860,8 @@ const CLASS_NAMES = {
   520: "BACnet Trend Log",
   521: "BACnet Life Safety Point",
   522: "BACnet Life Safety Zone",
+  523: "ZN-T Setpoint",        // CCT: zone temperature setpoint determination; Primitives.xml
+  524: "Occupancy Mode",       // CCT: occupied/standby/unoccupied determination; Primitives.xml
   526: "Input Float Block",
   527: "Output Float Block",
   528: "Input Enumeration Block",
@@ -858,21 +869,47 @@ const CLASS_NAMES = {
   530: "Input Boolean Block",
   531: "Output Boolean Block",
   532: "Summer Winter Compensation Primitive",
+  533: "Lighting Control",     // CCT: Primitives.xml
   536: "Control Activity",
+  538: "Last Value",           // CCT: holds last valid (non-fault) signal value; Primitives.xml
+  539: "Reliability Check",    // CCT: monitors signal reliability, outputs fault status; Primitives.xml
+  540: "State Selection",      // CCT: selects between operating states/modes; Primitives.xml
+  541: "FSM",                  // CCT: Finite State Machine; Primitives.xml
+  543: "Command Hierarchy",    // CCT: BACnet priority array arbitration; Primitives.xml
+  546: "Line Segment",         // CCT: piecewise linear interpolation (reset schedules); Primitives.xml
   551: "Float Constant",
   552: "Boolean Constant",
   554: "File",
   555: "Control Point",
   556: "Sensor Primitive",
+  558: "Timer",                // CCT: on-delay/off-delay/pulse/elapsed-time; Primitives.xml
+  559: "Boolean Logic",        // CCT: AND/OR/NOT/XOR operations; Primitives.xml
   560: "Comparison",
+  561: "Math",                 // CCT: add/subtract/multiply/divide/min/max; Primitives.xml
+  562: "Mux",                  // CCT: multiplexer, selects one of several float inputs; Primitives.xml
   563: "ABH Primitive",
   564: "DP Primitive",
   565: "Enth Primitive",
   566: "RH Primitive",
   567: "WB Primitive",
   568: "Enumeration Constant",
+  569: "Rate Limiter",         // CCT: slew rate limiter for float signals; Primitives.xml
   570: "Flow",
-  575: "Sequence",
+  571: "Sequencer",            // CCT: lead/lag rotation for redundant equipment; Primitives.xml
+  573: "Span",                 // CCT: linear scaling between min/max ranges; Primitives.xml
+  574: "Latch",                // CCT: set/reset latch; Primitives.xml
+  575: "Control Sequence",     // CCT: top-level container for controller application; Primitives.xml
+  579: "MSC Pre Processor",    // CCT: Primitives.xml
+  580: "Multi-Stage Controller", // CCT: stages discrete equipment on/off; Primitives.xml
+  581: "Free Cooling",         // CCT: OA vs return air economizer determination; Primitives.xml
+  582: "PID Pre Process",      // CCT: conditions process variable before PID; Primitives.xml
+  584: "PVDC",                 // CCT: Primitives.xml
+  585: "Standards Table",      // CCT: reference table of standard JCI values; Primitives.xml
+  587: "Statistic",            // CCT: min/max/average across inputs; Primitives.xml
+  591: "Totalization",         // CCT: accumulates running total over time; Primitives.xml
+  592: "Pass Through",         // CCT: routes signal unchanged, makes value a named point; Primitives.xml
+  593: "Text",                 // CCT: stores/outputs a text string; Primitives.xml
+  595: "Execution Status",     // CCT: monitors control sequence execution status; Primitives.xml
   597: "REM Device",
   598: "RIOM Device",
   599: "Analog Input Mapper",
@@ -885,15 +922,46 @@ const CLASS_NAMES = {
   606: "JCI Multistate Mapper",
   610: "PC NAE",
   611: "PC NIE (8500)",
+  612: "Box Flow Test",        // CCT: VAV box airflow calibration test; Primitives.xml
   613: "NAE 35",
+  614: "Reliability Merge",    // CCT: combines reliability statuses from multiple sources; Primitives.xml
   627: "Net Sensor Device",
+  628: "Net Sensor AI",        // CCT: analog input from networked sensor (ZFR/SA bus); Primitives.xml
+  631: "VAV Balancer",         // CCT: balances airflow across multiple VAV boxes; Primitives.xml
   632: "Variable Speed Drive",
+  633: "Dual Duct Endpoint",   // CCT: Primitives.xml
+  634: "Address",              // CCT: Primitives.xml
+  640: "Local Display (RDDEV)", // CCT: SA bus field display (FX-DIS1710); Primitives.xml
   651: "NCE",
   658: "AV Load Extension",
   659: "BV Load Extension",
   660: "MV Load Extension",
   661: "Subscription Client",
+  670: "RIO DEV",              // CCT: SA bus remote I/O module device; Primitives.xml
+  671: "RAI",                  // CCT: remote analog input on SA bus expansion module; Primitives.xml
+  672: "RAO",                  // CCT: remote analog output on SA bus expansion module; Primitives.xml
+  673: "RBI",                  // CCT: remote binary input on SA bus expansion module; Primitives.xml
+  674: "RBO",                  // CCT: remote binary output on SA bus expansion module; Primitives.xml
   677: "Averaging",
+  701: "Device Enable",        // CCT: enable/disable based on conditions and overrides; Primitives.xml
+  702: "Equipment Interlock",  // CCT: permissive/interlock enforcement; Primitives.xml
+  704: "Device Alarm",         // CCT: monitors status, generates BACnet alarms; Primitives.xml
+  705: "Capacity Calc",        // CCT: available/required capacity for central plant; Primitives.xml
+  706: "Load Calc",            // CCT: thermal load from flow and delta-T; Primitives.xml
+  707: "Blocking Protection",  // CCT: prevents valve/damper hunting; Primitives.xml
+  708: "Pump Selector",        // CCT: lead/lag pump selection with runtime equalization; Primitives.xml
+  709: "Chiller Selector",     // CCT: chiller selection and staging; Primitives.xml
+  715: "Analog Override Check", // CCT: monitors AO for out-of-range conditions; Primitives.xml
+  716: "Binary Override Check", // CCT: monitors BO for feedback mismatch; Primitives.xml
+  721: "Lead Compensator",     // CCT: Primitives.xml
+  724: "Cooling Tower Control", // CCT: near-optimal open loop cooling tower; Primitives.xml
+  745: "Tower Selector",       // CCT: cooling tower fan/cell lead/lag selection; Primitives.xml
+  768: "Heat Exchanger Selector", // CCT: free-cooling/condenser loop HX selection; Primitives.xml
+  776: "Expression",           // CCT: user-defined math/logic expression; Primitives.xml
+  779: "Fault Manager",        // CCT: collects/prioritizes faults, manages alarms; Primitives.xml
+  798: "Global Sequencer",     // CCT: Primitives.xml
+  807: "Equipment Definition",
+  820: "BACnet Character String",
   699: "Summary Definition",
   717: "Xaml Graphic",
   751: "NAE-45L Engine",
@@ -911,7 +979,13 @@ const CLASS_NAMES = {
   828: "BACnet Positive Integer",
   844: "Facility Graphic Asset",
   847: "Generic Archive Container",
+  862: "IP FEC",              // CCT: IP-enabled field controller root device object; Primitives.xml
   863: "IP Field Device",
+  880: "Moving Average Filter", // CCT: Primitives.xml
+  910: "SA Bus Device",       // CCT: SA bus device integration (room sensors, displays); Primitives.xml
+  916: "Device Stager",       // CCT: generic multi-unit equipment staging; Primitives.xml
+  917: "Boiler Stager",       // CCT: sequences boilers on/off, lead/lag rotation; Primitives.xml
+  918: "Chiller Stager",      // CCT: sequences chillers on/off, lead/lag rotation; Primitives.xml
   871: "SNE1100x",
   872: "SNE1050x",
   873: "NAE-45-1L (SMARC)",
