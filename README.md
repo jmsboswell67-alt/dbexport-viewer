@@ -1,6 +1,6 @@
 # dbexport-viewer
 
-**Read, diff, and bulk-fix Metasys SCT archives without SCT, CCT, PCT, or a JCI service visit.**
+**Read, audit, diff, and bulk-fix Metasys SCT archives without SCT, CCT, PCT, or a JCI service visit.**
 
 A single-file, offline, browser-based viewer for Johnson Controls Metasys
 `.dbexport` archives and `.caf` controller files. Open a file you already have,
@@ -14,11 +14,28 @@ get the information SCT would charge a service call for.
 
 ## What it does
 
+**Browse + extract:**
 - **Read `.dbexport` archives** — full hierarchical browse: Site → Engine → Trunk → Equipment → Points, with class labels, property names, and full object detail.
-- **Read `.caf` files** — the controller logic files CCT writes. Tells you the controller model, firmware version, and every configured object. Answers ["Is there any way to open up a .caf file without a service tech?"](https://github.com/jmsboswell67-alt/dbexport-viewer/issues) (real 2022 forum thread, 2.3K views, accepted answer was "you can't") — now you can.
-- **Diff two snapshots** — see what changed between archive backups at object-level and property-level. SCT has no equivalent.
-- **Export to CSV / JSON** — scoped to whatever you've selected. Points, schedules, alarms, trends, or everything. Open in Excel, share with consultants, feed into your own tools.
-- **Fix unbound references in bulk** — drop the `UnboundReferences.csv` SCT generates, get pattern detection (e.g. "6,348 refs point to a renamed ADX"), then **click one button to produce a fixed `.dbexport`** with the dead references repointed. Decodes the `Base64Zip`-wrapped User Trees, Graphics, and Programming logic that SCT makes you fix one row at a time.
+- **Read `.caf` files** — the controller logic files CCT writes. Tells you the controller model, firmware version, and every configured object. Answers ["Is there any way to open up a .caf file without a service tech?"](https://www.reddit.com/r/BuildingAutomation/) (real 2022 forum thread, accepted answer was "you can't") — now you can.
+- **Reverse lookup** — click any point, see every graphic, program, schedule, and user tree that references it. Pre-deletion gut check ("if I remove this, what breaks?"), commissioning audit ("what does this sensor actually drive?"), cascade tracing.
+- **Export to CSV / JSON / vendor-neutral point list** — scoped to whatever you've selected. Points, schedules, alarms, trends, or everything. Open in Excel, share with consultants, feed into your own tools. The vendor-neutral export strips JCI-specific property IDs in favor of clean columns any other BMS can ingest.
+
+**Diff + compare:**
+- **Same-site diff** — two snapshots of the same site, see what changed between them at object and property level. No SCT equivalent.
+- **Cross-site comparison** — drop archives from two different sites, get a structural comparison: controller counts, point counts, class distributions, average objects per controller. Auto-detects when archives look like different sites and warns that ref-based diff isn't the right tool.
+
+**Find + fix:**
+- **Native unbound-references scanner** — drop a `.dbexport` alone (no SCT-exported CSV needed). The tool walks every XML in the zip plus every `Base64Zip`-wrapped logic/graphics payload, finds every ref-shaped string whose target isn't defined, and produces the same row shape as SCT's unbound-refs report. Calibrated against SCT ground truth at ~88% recall, with confidence pills showing whether rewrites land on real objects.
+- **One-click bulk repoint** — when the unbound refs follow a clear rename pattern (e.g. `DACC-ADX-01:` → `DACC-ADX-02:`), the tool generates a corrected `.dbexport` you can import directly via SCT's Restore Archive. Decodes the Base64Zip-wrapped User Trees, Graphics, and Programming logic that SCT makes you fix one row at a time. Verified: 5,641 broken refs fixed in one click on a real DACC archive.
+- **Delete-to-archive** — bulk, per-row, or multi-select via checkboxes. Removes selected items (graphics, programs, user trees) from a copy of the archive and emits a valid `.dbexport`. Categorized confirm dialog before any destructive action.
+
+**Audit findings:**
+- **Suppressed alarms** — every object where Event Enable has at least one transition disabled. Grouped by class. DACC test: 640 findings. CSV export.
+- **Duplicate descriptions** — objects sharing a Description across multiple refs. Distinguishes within-engine (often intentional) from cross-engine (more suspicious copy-paste artifacts). DACC test: 558 groups, 222 cross-engine.
+- **Orphaned graphics** — graphics files that nothing in the archive references. Builds on the reverse-lookup index. Cleanup candidates.
+
+**Documentation:**
+- **As-Built Documentation generator** — produces a printable HTML document covering cover page, site topology, full device inventory, point list per controller, schedules, alarm definitions with suppression flags, and any audit findings you've run. Open in a new tab, print to PDF. Replaces the commissioning consultant deliverable on many sites.
 
 ## Why it exists
 
@@ -40,16 +57,20 @@ parsed locally and never leave your machine.
 
 That's it. No install, no signup, no internet required after download.
 
-For diff mode, drop two `.dbexport` files into the two slots. For the bulk
-unbound-references fixer, drop your archive into slot A and the unbound
-references CSV into slot B, then switch to the "Unbound Refs" tab.
+**Typical workflows:**
+- **"What's in this archive?"** — drop the file, browse the tree. Click any object for full property detail and reverse-lookup of what references it.
+- **"Fix unbound references"** — drop the archive, switch to the Unbound Refs tab, click "Scan now". Review the patterns. Click "Apply to archive" on any rename pattern with high confidence.
+- **"Audit the site"** — drop the archive, switch to the Audit tab. Browse the suppressed-alarm and duplicate-description findings. Export CSVs.
+- **"Diff two backups"** — drop two `.dbexport` files. Auto-detects same-site (use Diff mode) vs. different-site (auto-promotes structural comparison panel).
+- **"Generate as-built docs"** — drop the archive, optionally run an Audit first, then Export ▾ → As-Built Documentation. New tab opens, hit Print, save as PDF.
 
 ## What it can't do
 
 - It does **not** talk to live engines. No BACnet/IP polling, no Metasys REST API client. Read-only against files you already have.
-- It does **not** edit object structure or control logic. The "Apply repoint" feature only does prefix substitution on existing references; it doesn't create, delete, or rewire objects.
-- It does **not** carry the full JCI runtime dictionary. The 206 attribute names and 104 class names baked in come from publicly-distributed JCI Launcher resource files. The remaining ~10% of IDs (usually CCT-specific logic-block classes or runtime-only attributes) appear as `Property N` or `Class N`. Contributions to expand the dictionary welcome.
-- It does **not** render Metasys graphics or CCT logic wiring diagrams (yet). Graphics and Programming `.xml` files use a proprietary Tom Sawyer Graph format that we haven't tackled.
+- It does **not** simulate runtime behavior — yet. See [SIMULATOR.md](SIMULATOR.md) for the long-range plan toward an editable sandbox + control-logic emulator.
+- It does **not** edit logic wiring or create new objects. Delete-to-archive removes whole files (graphics, programs, user trees); repoint substitutes ADX prefixes. The viewer doesn't add new objects or rewire programming.
+- It does **not** carry the full JCI runtime dictionary. The 206+ attribute names and 124+ class names baked in come from publicly-distributed JCI Launcher resource files. The remaining ~10% of IDs (usually CCT-specific logic-block classes or runtime-only attributes) appear as `Property N` or `Class N`. **Contributions to expand the dictionary are very welcome** — see [Contributing](#contributing).
+- It does **not** render Metasys graphics or CCT logic wiring diagrams (yet). Graphics and Programming `.xml` files use a proprietary Tom Sawyer Graph format. The parser is shipped (`parseTSEGraph`) and basic rendering exists in the Logic mode, but full point-binding-aware rendering is on the roadmap.
 
 ## How it works (interop reference data)
 
@@ -72,30 +93,52 @@ project. Only the extracted ID → name table is included.
 ## What's in the box
 
 ```
-index.html        — the entire app, single file, ~210 KB (JSZip inlined)
+index.html        — the entire app, single file, ~350 KB (JSZip inlined)
 LICENSE           — Apache License 2.0
 PUNCHLIST.md      — feature roadmap + session-by-session changelog
+SIMULATOR.md      — long-range roadmap toward a BAS sandbox
 README.md         — this file
+.github/ISSUE_TEMPLATE/  — structured templates for bugs, unknown IDs,
+                          dictionary contributions, sample archives
 ```
 
 ## Roadmap
 
-See [PUNCHLIST.md](PUNCHLIST.md) for the full feature roadmap. Active areas:
+Near-term feature list lives in [PUNCHLIST.md](PUNCHLIST.md). Long-range
+vision (controls + BACnet sandbox, "Packet Tracer for BAS") is in
+[SIMULATOR.md](SIMULATOR.md). Active near-term areas:
 
-- Graphics viewer (XAML + older TSEGraph formats)
-- Programming/logic-block viewer
-- Schedule weekly-calendar visualizer
-- Energy-waste heuristics (24/7 schedules, stuck overrides, suppressed alarms)
-- Cross-vendor: same approach for Tridium Niagara, Siemens Desigo, Honeywell EBI
+- Full TSEGraph graphics rendering with point-binding overlays
+- Schedule weekly-calendar visualizer in the as-built docs
+- Modification-timestamp harvesting for same-site drift detection
+- Pre-export static validator (Phase 1 of the simulator roadmap)
 
 ## Contributing
 
-This is a side project, maintained when the maintainer has free cycles.
+This is a side project, maintained when the maintainer has free cycles. The
+issue templates make it easy to file useful feedback even without writing
+code.
 
-The most useful contributions, in rough priority order:
-1. **Dictionary additions** — if your archive shows `Property N` or `Class N`, look it up in your own JCI documentation and PR the entry into `index.html`.
-2. **`.dbexport` samples with unusual content** — non-DACC site structures, older firmware versions, weird edge cases. Open an issue describing what's not parsing right.
-3. **Cross-vendor analogues** — the basic architecture (zipped XML → tree → diff/export) maps to other BAS vendors' export formats. Open an issue if you want to add Tridium Niagara, Siemens Desigo, etc.
+Most useful contributions, in rough priority order:
+
+1. **Live engine enum captures** — if you have access to an ADX, one curl
+   against the Metasys REST API (`GET /api/v6/schemas/enums/...`) for
+   `reliabilityEnumSet`, `unitEnumSet`, `objectCategoryEnumSet`, etc., would
+   close the largest remaining dictionary gap. See the `enum-capture.yml`
+   issue template.
+2. **Unknown property/class IDs** — if your archive shows `Property N` or
+   `Class N`, look it up in your own JCI documentation and file under the
+   `unknown-id.yml` issue template (or PR directly).
+3. **CCT logic block class names** — the ~30 CCT-specific block classes
+   (526, 528, 555, 556, 561, 568, 658-660, etc.) need authoritative names.
+   `cct-class-names.yml` template tracks the open list.
+4. **`.dbexport` samples with unusual content** — non-DACC site structures,
+   older firmware versions, weird edge cases. The `sample-archive.yml`
+   template describes what to share (and what NOT to — never include
+   live engine state or anything covered by site-confidentiality clauses).
+5. **Cross-vendor analogues** — the basic architecture (zipped XML → tree
+   → diff/export) maps to other BAS vendors' export formats. If you want
+   to add Tridium Niagara, Siemens Desigo, Honeywell EBI, open an issue.
 
 ## License
 
