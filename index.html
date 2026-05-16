@@ -620,7 +620,9 @@
           <button data-fmt="csv-all" type="button">All objects — CSV</button>
           <button data-fmt="csv-schedules" type="button">Schedules — CSV</button>
           <button data-fmt="csv-trends" type="button">Trend logs — CSV</button>
+          <button data-fmt="csv-vendor-neutral" type="button">Vendor-neutral point list — CSV</button>
           <button data-fmt="json" type="button">Full data — JSON</button>
+          <button data-fmt="as-built" type="button" style="border-top: 1px solid var(--line); font-weight: 600;">📄 As-Built Documentation (HTML→PDF)</button>
         </div>
       </div>
     </div>
@@ -5115,6 +5117,118 @@ async function renderLogicDetail(body, crumb, classSel, objSearch) {
   body.appendChild(tbl);
 }
 
+// Structural comparison of two archives — independent of whether their refs
+// overlap. Designed for cross-site comparison (different ADX names, no shared
+// refs) but also useful when diffing two snapshots of the same site (gives a
+// quick "are the totals stable?" sanity check).
+function archiveStats(arc) {
+  // Class buckets the user actually cares about
+  const POINT_CLASSES = new Set(["0","1","2","3","4","5","13","19","165","174","175","176","500","501","502","503","504","505","513","514","515","599","600","601","602","603","604","605","606"]);
+  const stats = {
+    deviceCount: arc.devices.length,
+    objectCount: 0,
+    pointCount: 0,
+    scheduleCount: 0,
+    alarmCount: 0,
+    graphicCount: 0,
+    programmingCount: 0,
+    classDistribution: new Map(),  // classid -> count
+    adxes: new Set(),
+    engineNames: new Set(),
+  };
+  for (const dev of arc.devices) {
+    for (const obj of dev.objects) {
+      stats.objectCount++;
+      if (POINT_CLASSES.has(obj.classid)) stats.pointCount++;
+      if (obj.classid === "17" || obj.classid === "263") stats.scheduleCount++;
+      if (/Alarm|alarm/.test(classLabel(obj.classid))) stats.alarmCount++;
+      if (obj.classid === "344" || obj.classid === "357") stats.graphicCount++;
+      if (obj.classid === "177" || obj.classid === "130") stats.programmingCount++;
+      stats.classDistribution.set(obj.classid, (stats.classDistribution.get(obj.classid) || 0) + 1);
+      if (obj.ref) {
+        const colonIdx = obj.ref.indexOf(":");
+        if (colonIdx >= 0) {
+          stats.adxes.add(obj.ref.slice(0, colonIdx));
+          const slashIdx = obj.ref.indexOf("/", colonIdx + 1);
+          stats.engineNames.add(slashIdx >= 0 ? obj.ref.slice(colonIdx + 1, slashIdx) : obj.ref.slice(colonIdx + 1));
+        }
+      }
+    }
+  }
+  return stats;
+}
+
+function renderArchiveComparisonStats(arcA, arcB) {
+  const sA = archiveStats(arcA);
+  const sB = archiveStats(arcB);
+  const wrap = document.createElement("div");
+  wrap.className = "obj-detail";
+  wrap.style.background = "var(--bg-alt)";
+  wrap.style.padding = "16px";
+  wrap.style.borderRadius = "var(--radius)";
+  wrap.style.marginBottom = "16px";
+
+  const formatCell = (a, b) => {
+    if (a === b) return `<td style="text-align:right;">${a.toLocaleString()}</td><td style="text-align:right;">${b.toLocaleString()}</td><td style="text-align:center; color: var(--ink-dim);">—</td>`;
+    const delta = b - a;
+    const sign = delta > 0 ? "+" : "";
+    const color = delta > 0 ? "var(--good)" : "var(--bad)";
+    return `<td style="text-align:right;">${a.toLocaleString()}</td><td style="text-align:right;">${b.toLocaleString()}</td><td style="text-align:center; color: ${color}; font-weight: 600;">${sign}${delta.toLocaleString()}</td>`;
+  };
+
+  const adxA = [...sA.adxes].join(", ") || "—";
+  const adxB = [...sB.adxes].join(", ") || "—";
+
+  wrap.innerHTML = `
+    <h3 style="font-family: var(--sans); margin: 0 0 12px 0; font-size: 14px;">📊 Structural comparison</h3>
+    <table style="width: auto; font-size: 12px;">
+      <thead>
+        <tr><th style="min-width: 200px;">Metric</th><th style="min-width: 100px; text-align:right;">${escapeHtml(arcA.name.slice(0, 30))}</th><th style="min-width: 100px; text-align:right;">${escapeHtml(arcB.name.slice(0, 30))}</th><th style="min-width: 60px; text-align:center;">Δ</th></tr>
+      </thead>
+      <tbody>
+        <tr><th>ADX server(s)</th><td colspan="2" style="font-family: var(--mono); font-size: 11px;">${escapeHtml(adxA)} <span style="color: var(--ink-dim);">→</span> ${escapeHtml(adxB)}</td><td></td></tr>
+        <tr><th>Controllers / engines</th>${formatCell(sA.deviceCount, sB.deviceCount)}</tr>
+        <tr><th>Total objects</th>${formatCell(sA.objectCount, sB.objectCount)}</tr>
+        <tr><th>Data points (AI/AO/AV/BI/BO/BV/MI/MV/FEC)</th>${formatCell(sA.pointCount, sB.pointCount)}</tr>
+        <tr><th>Schedules</th>${formatCell(sA.scheduleCount, sB.scheduleCount)}</tr>
+        <tr><th>Alarm-related objects</th>${formatCell(sA.alarmCount, sB.alarmCount)}</tr>
+        <tr><th>Graphics</th>${formatCell(sA.graphicCount, sB.graphicCount)}</tr>
+        <tr><th>Programming logic blocks</th>${formatCell(sA.programmingCount, sB.programmingCount)}</tr>
+        <tr><th>Distinct ADX names</th>${formatCell(sA.adxes.size, sB.adxes.size)}</tr>
+        <tr><th>Distinct engine names</th>${formatCell(sA.engineNames.size, sB.engineNames.size)}</tr>
+        <tr><th>Avg objects per controller</th>${formatCell(Math.round(sA.objectCount / Math.max(1, sA.deviceCount)), Math.round(sB.objectCount / Math.max(1, sB.deviceCount)))}</tr>
+      </tbody>
+    </table>
+  `;
+
+  // Class distribution — top 10 classes by combined count, side-by-side
+  const combinedClassCounts = new Map();
+  for (const [cid, n] of sA.classDistribution) combinedClassCounts.set(cid, (combinedClassCounts.get(cid) || 0) + n);
+  for (const [cid, n] of sB.classDistribution) combinedClassCounts.set(cid, (combinedClassCounts.get(cid) || 0) + n);
+  const topClasses = [...combinedClassCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+
+  const classTable = document.createElement("div");
+  classTable.style.marginTop = "16px";
+  classTable.innerHTML = `
+    <h4 style="font-family: var(--sans); margin: 0 0 8px 0; font-size: 12px; color: var(--ink-soft);">Top 12 object classes (combined)</h4>
+    <table style="width: auto; font-size: 12px;">
+      <thead>
+        <tr><th style="min-width: 220px;">Class</th><th style="min-width: 80px; text-align:right;">A</th><th style="min-width: 80px; text-align:right;">B</th><th style="min-width: 60px; text-align:center;">Δ</th></tr>
+      </thead>
+      <tbody>
+        ${topClasses.map(([cid]) => {
+          const a = sA.classDistribution.get(cid) || 0;
+          const b = sB.classDistribution.get(cid) || 0;
+          return `<tr><td>${escapeHtml(classLabel(cid))} <span style="color: var(--ink-dim); font-size: 10px;">(cid ${cid})</span></td>${formatCell(a, b)}</tr>`;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+  wrap.appendChild(classTable);
+
+  return wrap;
+}
+
 function renderDiffDetail(body, crumb, classSel, objSearch) {
   classSel.style.display = "none";
   objSearch.style.display = "";
@@ -5165,6 +5279,34 @@ function renderDiffDetail(body, crumb, classSel, objSearch) {
     <span class="diff-pill same"><span class="num">${diff.same.length.toLocaleString()}</span> unchanged</span>
   `;
   body.appendChild(summary);
+
+  // Cross-site detection + stats panel. When two archives barely share any
+  // refs (i.e. they're snapshots of different sites, not snapshots of the
+  // same site at different times), per-object diff is meaningless. We surface
+  // a structural side-by-side comparison instead, and warn the user that
+  // ref-based diff isn't the right tool for that workload.
+  const totalRefs = diff.added.length + diff.removed.length + diff.changed.length + diff.same.length;
+  const overlap = totalRefs > 0 ? (diff.changed.length + diff.same.length) / totalRefs : 0;
+  const looksLikeDifferentSites = overlap < 0.1 && diff.added.length > 100 && diff.removed.length > 100;
+
+  if (looksLikeDifferentSites && !state.selectedDevice) {
+    const banner = document.createElement("div");
+    banner.style.background = "var(--info-soft)";
+    banner.style.borderLeft = "4px solid var(--accent)";
+    banner.style.padding = "10px 16px";
+    banner.style.margin = "0 0 16px 0";
+    banner.style.borderRadius = "var(--radius)";
+    banner.innerHTML = `
+      <div style="font-family: var(--sans); font-weight: 600; margin-bottom: 4px;">📊 Cross-site comparison detected</div>
+      <div style="font-size: 12px; color: var(--ink-soft);">
+        These two archives share less than 10% of their object refs — they look like snapshots of <strong>different sites</strong>, not different versions of the same site.
+        Ref-based diff isn't the right tool here. The structural comparison below shows what to look at instead.
+      </div>
+    `;
+    body.appendChild(banner);
+  }
+  // Always show stats panel — it's useful regardless of whether it's same-site or cross-site
+  body.appendChild(renderArchiveComparisonStats(a, b));
 
   if (!rows.length) {
     body.appendChild(makeEmpty("No differences", state.selectedDevice ? "This device is identical between the two archives." : "Try a different filter."));
@@ -5475,6 +5617,400 @@ function exportJson(arc) {
   downloadBlob(`archive_${cleanFilename(scopeLabel)}.json`, "application/json", JSON.stringify(out, null, 2));
 }
 
+// ============ Vendor-neutral point list ============
+// A clean point-list CSV that any other BMS (Niagara, Desigo, EBI, etc.)
+// can ingest. Only the columns operators actually need: ref, friendly name,
+// description, type, units, default value, alarm config. No JCI-specific
+// property IDs.
+function exportVendorNeutralPointList(arc) {
+  // Point classes per JCI dictionary: BACnet std AI/AO/AV/BI/BO/BV/MI/MV
+  // plus JCI native FEC point types (500-606, 599-606 specifically)
+  const POINT_CLASSES = new Set([
+    "0","1","2","3","4","5",                      // BACnet std AI/AO/AV/BI/BO/BV
+    "13","19",                                     // MI/MV
+    "165","174","175","176",                       // JCI Analog/Binary/Multistate Value
+    "500","501","502","503","504","505",           // BACnet point variants
+    "513","514","515",                             // BACnet MI/MO/Notification
+    "599","600","601","602","603","604","605","606", // FEC point types
+  ]);
+  const rows = [];
+  for (const dev of arc.devices) {
+    for (const obj of dev.objects) {
+      if (!POINT_CLASSES.has(obj.classid)) continue;
+      const desc = extractPropString(obj, "28");
+      const name = extractPropString(obj, "2390");
+      const units = extractPropEnum(obj, "117");
+      const defaultVal = decodePropValue(obj, "104");      // Relinquish Default
+      const minVal = decodePropValue(obj, "136");
+      const maxVal = decodePropValue(obj, "135");
+      const eventEnable = decodePropValue(obj, "35");
+      const refParts = parseRef(obj.ref);
+      rows.push({
+        adx: refParts.adx,
+        engine: refParts.engine,
+        path: refParts.path,
+        full_ref: obj.ref,
+        name,
+        description: desc,
+        point_type: pointTypeLabel(obj.classid),
+        bacnet_object_type: obj.bacnetclassid || "",
+        object_id: obj.objectid || "",
+        units,
+        default_value: defaultVal,
+        min_value: minVal,
+        max_value: maxVal,
+        alarms_enabled: eventEnable,
+      });
+    }
+  }
+  const header = ["ADX","Engine","Path","Full Reference","Name","Description","Point Type","BACnet Object Type","Object ID","Units","Default Value","Min","Max","Alarms Enabled"];
+  const lines = [
+    `# Vendor-neutral point list from ${arc.name} — generated ${new Date().toISOString()}`,
+    `# ${rows.length} points across ${arc.devices.length} controllers`,
+    `# Columns: ${header.join(", ")}`,
+    csvRow(header),
+    ...rows.map(r => csvRow([r.adx, r.engine, r.path, r.full_ref, r.name, r.description, r.point_type, r.bacnet_object_type, r.object_id, r.units, r.default_value, r.min_value, r.max_value, r.alarms_enabled])),
+  ];
+  downloadBlob(`point_list_vendor_neutral_${cleanFilename(arc.name)}.csv`, "text/csv;charset=utf-8", lines.join("\n") + "\n");
+}
+
+function extractPropString(obj, pid) {
+  const raw = obj.properties?.[pid];
+  if (!raw) return "";
+  const m = raw.match(/<string>([^<]*)<\/string>/);
+  return m ? m[1] : "";
+}
+
+function extractPropEnum(obj, pid) {
+  const raw = obj.properties?.[pid];
+  if (!raw) return "";
+  const m = raw.match(/<enum[^>]*set="(\d+)"[^>]*>(\d+)<\/enum>/);
+  return m ? `enum[${m[1]}]=${m[2]}` : "";
+}
+
+function decodePropValue(obj, pid) {
+  const raw = obj.properties?.[pid];
+  if (!raw) return "";
+  return decodeValue(raw);
+}
+
+function pointTypeLabel(classid) {
+  const label = CLASS_NAMES[classid] || `Class ${classid}`;
+  // Strip "JCI" prefix and "Object" suffix for cleaner vendor-neutral output
+  return label.replace(/^JCI\s+/, "").replace(/\s+Object$/, "");
+}
+
+// ============ As-Built Documentation generator ============
+// Opens a new browser tab with a long, print-formatted HTML document covering
+// the archive's site topology, device inventory, point lists, schedules, and
+// alarm configurations. User hits Ctrl+P to save as PDF — typical output is a
+// 30-100 page PDF that replaces the commissioning consultant's deliverable.
+function openAsBuiltDoc(arc) {
+  const html = buildAsBuiltHTML(arc);
+  // Open in a new tab. Some browsers block this if the click handler chain
+  // is too deep; fall back to a blob URL if it is.
+  let win = window.open("", "_blank");
+  if (!win) {
+    // Popup blocked — fall back to opening via blob URL
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    win = window.open(url, "_blank");
+    if (!win) {
+      alert("Popup blocked. Please allow popups for this site, or use a blob URL fallback (coming soon).");
+      return;
+    }
+  } else {
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+  }
+}
+
+function buildAsBuiltHTML(arc) {
+  const date = new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+  const totalObjects = arc.devices.reduce((s, d) => s + d.objects.length, 0);
+  const totalPoints = arc.devices.reduce((s, d) =>
+    s + d.objects.filter(o => /^(0|1|2|3|4|5|13|19|165|17[4-6]|50[0-5]|51[3-5]|5(9[9])|60[0-6])$/.test(o.classid)).length, 0);
+  const totalSchedules = arc.devices.reduce((s, d) =>
+    s + d.objects.filter(o => o.classid === "17" || o.classid === "263").length, 0);
+  const totalAlarms = arc.devices.reduce((s, d) =>
+    s + d.objects.filter(o => /Alarm|alarm/.test(classLabel(o.classid))).length, 0);
+  const totalGraphics = arc.devices.reduce((s, d) =>
+    s + d.objects.filter(o => o.classid === "344" || o.classid === "357").length, 0);
+
+  // Get audit findings if already computed
+  const audit = arc._auditAnalysis;
+
+  // CSS for print + screen
+  const css = `
+    @page { size: letter; margin: 0.6in 0.75in; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1a1a1a; line-height: 1.5; max-width: 7.5in; margin: 0 auto; padding: 0.5in; font-size: 11pt; }
+    h1 { font-size: 24pt; margin: 0 0 0.2in 0; color: #1a1a1a; }
+    h2 { font-size: 16pt; margin: 0.4in 0 0.15in 0; padding-bottom: 6px; border-bottom: 2px solid #c87f0a; page-break-after: avoid; }
+    h3 { font-size: 13pt; margin: 0.2in 0 0.1in 0; color: #c87f0a; page-break-after: avoid; }
+    h4 { font-size: 11pt; margin: 0.12in 0 0.08in 0; color: #444; page-break-after: avoid; }
+    table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 9.5pt; }
+    th { background: #f5e6d0; text-align: left; padding: 4px 6px; border-bottom: 1px solid #c87f0a; font-weight: 600; }
+    td { padding: 3px 6px; border-bottom: 1px solid #ddd; vertical-align: top; }
+    tr:nth-child(even) td { background: #fafafa; }
+    .cover { text-align: center; padding: 1in 0; page-break-after: always; }
+    .cover h1 { font-size: 32pt; margin-bottom: 12px; }
+    .cover .subtitle { font-size: 14pt; color: #666; margin-bottom: 0.4in; }
+    .cover .stats { display: inline-block; margin-top: 0.5in; text-align: left; padding: 20px 40px; background: #f5e6d0; border: 1px solid #c87f0a; border-radius: 8px; }
+    .cover .stats div { margin: 6px 0; font-size: 11pt; }
+    .cover .stats strong { color: #c87f0a; }
+    .toc { page-break-after: always; }
+    .toc ul { list-style: none; padding: 0; }
+    .toc li { padding: 4px 0; }
+    .toc a { color: #1a1a1a; text-decoration: none; }
+    .section { page-break-before: always; }
+    .section:first-of-type { page-break-before: avoid; }
+    .meta-line { color: #666; font-size: 9pt; }
+    .ref { font-family: "Consolas", "Monaco", monospace; font-size: 9pt; word-break: break-all; }
+    .small { font-size: 9pt; color: #666; }
+    .pill { display: inline-block; padding: 1px 7px; border-radius: 10px; background: #f5e6d0; color: #c87f0a; font-size: 9pt; margin-right: 4px; }
+    .warn { color: #b85c00; }
+    .bad { color: #b00020; }
+    .print-controls { background: #1a1a1a; color: #fff; padding: 10px 20px; position: sticky; top: 0; z-index: 1000; display: flex; justify-content: space-between; align-items: center; }
+    .print-controls button { background: #c87f0a; color: #fff; border: none; padding: 8px 16px; font-size: 13pt; border-radius: 4px; cursor: pointer; font-weight: 600; }
+    .print-controls button:hover { background: #a36608; }
+    @media print { .print-controls { display: none !important; } }
+  `;
+
+  // Build each section
+  const sectionToC = buildToC();
+  const sectionTopology = buildTopologySection(arc);
+  const sectionDevices = buildDeviceInventorySection(arc);
+  const sectionPoints = buildPointListSection(arc);
+  const sectionSchedules = buildScheduleSection(arc);
+  const sectionAlarms = buildAlarmSection(arc);
+  const sectionAudit = buildAuditSection(arc);
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>As-Built — ${escapeHtml(arc.name)}</title>
+  <style>${css}</style>
+</head>
+<body>
+  <div class="print-controls">
+    <div>As-Built — <strong>${escapeHtml(arc.name)}</strong></div>
+    <button onclick="window.print()">🖨 Print / Save as PDF</button>
+  </div>
+
+  <div class="cover">
+    <h1>${escapeHtml(arc.name.replace(/\.dbexport$/i, ""))}</h1>
+    <div class="subtitle">Building Automation System — As-Built Documentation</div>
+    <div class="stats">
+      <div><strong>${arc.devices.length}</strong> controllers</div>
+      <div><strong>${totalObjects.toLocaleString()}</strong> total objects</div>
+      <div><strong>${totalPoints.toLocaleString()}</strong> data points (AI/AO/AV/BI/BO/BV/MI/MV/FEC)</div>
+      <div><strong>${totalSchedules.toLocaleString()}</strong> schedules</div>
+      <div><strong>${totalAlarms.toLocaleString()}</strong> alarm definitions</div>
+      <div><strong>${totalGraphics.toLocaleString()}</strong> graphics</div>
+      <div style="margin-top: 10px; font-size: 9pt; color: #666;">
+        Generated ${escapeHtml(date)} · Source: <code>${escapeHtml(arc.name)}</code>
+      </div>
+    </div>
+    <div style="margin-top: 0.5in; font-size: 9pt; color: #999;">
+      Generated locally by Metasys Archive Viewer — no data was uploaded.
+    </div>
+  </div>
+
+  ${sectionToC}
+  ${sectionTopology}
+  ${sectionDevices}
+  ${sectionPoints}
+  ${sectionSchedules}
+  ${sectionAlarms}
+  ${sectionAudit}
+</body>
+</html>`;
+}
+
+function buildToC() {
+  return `<div class="toc section">
+    <h2>Contents</h2>
+    <ul>
+      <li><strong>§1</strong> Site Topology</li>
+      <li><strong>§2</strong> Device Inventory</li>
+      <li><strong>§3</strong> Point List</li>
+      <li><strong>§4</strong> Schedules</li>
+      <li><strong>§5</strong> Alarm Definitions</li>
+      <li><strong>§6</strong> Audit Findings</li>
+    </ul>
+  </div>`;
+}
+
+function buildTopologySection(arc) {
+  const rows = arc.devices.map(dev => {
+    const root = dev.objects.find(o => !o.ref.includes("/")) || dev.objects[0];
+    const folder = dev.folder || "";
+    const refParts = root ? parseRef(root.ref) : { adx: "", engine: folder };
+    const model = root ? extractPropString(root, "70") : "";
+    const desc = root ? extractPropString(root, "28") : "";
+    const ip = root ? extractPropString(root, "44") : "";
+    return { adx: refParts.adx, engine: refParts.engine, model, desc, ip, objectCount: dev.objects.length };
+  });
+  const adxes = [...new Set(rows.map(r => r.adx))].filter(Boolean);
+
+  let html = `<div class="section"><h2>§1 Site Topology</h2>`;
+  html += `<p class="meta-line">ADX server${adxes.length === 1 ? "" : "s"}: ${adxes.map(a => `<span class="pill">${escapeHtml(a)}</span>`).join(" ")}</p>`;
+  html += `<table><thead><tr><th>ADX</th><th>Engine</th><th>Model</th><th>Description</th><th>IP</th><th style="text-align:right;">Objects</th></tr></thead><tbody>`;
+  for (const r of rows) {
+    html += `<tr><td class="ref">${escapeHtml(r.adx)}</td><td class="ref">${escapeHtml(r.engine)}</td><td>${escapeHtml(r.model)}</td><td>${escapeHtml(r.desc)}</td><td class="ref">${escapeHtml(r.ip)}</td><td style="text-align:right;">${r.objectCount.toLocaleString()}</td></tr>`;
+  }
+  html += `</tbody></table></div>`;
+  return html;
+}
+
+function buildDeviceInventorySection(arc) {
+  let html = `<div class="section"><h2>§2 Device Inventory</h2>`;
+  html += `<p class="small">Detailed view of every controller in the archive, with model, firmware, and key configuration properties.</p>`;
+  for (const dev of arc.devices) {
+    const root = dev.objects.find(o => !o.ref.includes("/")) || dev.objects[0];
+    if (!root) continue;
+    const refParts = parseRef(root.ref);
+    const model = extractPropString(root, "70");
+    const firmware = extractPropString(root, "12");
+    const desc = extractPropString(root, "28");
+    const ip = extractPropString(root, "44");
+    html += `<h3>${escapeHtml(refParts.engine)} <span class="small" style="font-weight: normal;">(${dev.objects.length.toLocaleString()} objects)</span></h3>`;
+    html += `<table><tbody>`;
+    html += `<tr><th style="width: 30%;">ADX</th><td class="ref">${escapeHtml(refParts.adx)}</td></tr>`;
+    html += `<tr><th>Engine</th><td class="ref">${escapeHtml(refParts.engine)}</td></tr>`;
+    if (model) html += `<tr><th>Model</th><td>${escapeHtml(model)}</td></tr>`;
+    if (firmware) html += `<tr><th>Firmware / Comment</th><td>${escapeHtml(firmware)}</td></tr>`;
+    if (desc) html += `<tr><th>Description</th><td>${escapeHtml(desc)}</td></tr>`;
+    if (ip) html += `<tr><th>IP Address</th><td class="ref">${escapeHtml(ip)}</td></tr>`;
+    html += `<tr><th>Class</th><td>${escapeHtml(classLabel(root.classid))} (cid ${root.classid})</td></tr>`;
+    html += `</tbody></table>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function buildPointListSection(arc) {
+  const POINT_CLASSES = new Set(["0","1","2","3","4","5","13","19","165","174","175","176","500","501","502","503","504","505","513","514","515","599","600","601","602","603","604","605","606"]);
+  let html = `<div class="section"><h2>§3 Point List</h2>`;
+  html += `<p class="small">Every input, output, value, and multistate point in the archive, organized by controller.</p>`;
+  for (const dev of arc.devices) {
+    const root = dev.objects.find(o => !o.ref.includes("/")) || dev.objects[0];
+    const refParts = root ? parseRef(root.ref) : { engine: "Unknown" };
+    const points = dev.objects.filter(o => POINT_CLASSES.has(o.classid));
+    if (points.length === 0) continue;
+    html += `<h3>${escapeHtml(refParts.engine)} <span class="small" style="font-weight: normal;">(${points.length.toLocaleString()} points)</span></h3>`;
+    html += `<table><thead><tr><th>Reference Path</th><th>Description</th><th>Type</th><th>Units</th><th>Default</th></tr></thead><tbody>`;
+    // Sort by ref for predictable order
+    points.sort((a, b) => a.ref.localeCompare(b.ref, undefined, { numeric: true }));
+    for (const p of points) {
+      const desc = extractPropString(p, "28");
+      const units = extractPropEnum(p, "117");
+      const defaultVal = decodePropValue(p, "104");
+      const path = parseRef(p.ref).path || "(engine root)";
+      html += `<tr><td class="ref">${escapeHtml(path)}</td><td>${escapeHtml(desc)}</td><td>${escapeHtml(pointTypeLabel(p.classid))}</td><td>${escapeHtml(units)}</td><td>${escapeHtml(defaultVal)}</td></tr>`;
+    }
+    html += `</tbody></table>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function buildScheduleSection(arc) {
+  const schedules = arc.devices.flatMap(dev => dev.objects.filter(o => o.classid === "17" || o.classid === "263"));
+  let html = `<div class="section"><h2>§4 Schedules</h2>`;
+  if (schedules.length === 0) {
+    html += `<p class="small">No schedule objects found in this archive.</p></div>`;
+    return html;
+  }
+  html += `<p class="small">${schedules.length.toLocaleString()} schedule${schedules.length === 1 ? "" : "s"} defined across the site.</p>`;
+  html += `<table><thead><tr><th>Reference</th><th>Description</th><th>Default</th></tr></thead><tbody>`;
+  schedules.sort((a, b) => a.ref.localeCompare(b.ref, undefined, { numeric: true }));
+  for (const s of schedules) {
+    const desc = extractPropString(s, "28");
+    const defaultVal = decodePropValue(s, "104");
+    html += `<tr><td class="ref">${escapeHtml(s.ref)}</td><td>${escapeHtml(desc)}</td><td>${escapeHtml(defaultVal)}</td></tr>`;
+  }
+  html += `</tbody></table></div>`;
+  return html;
+}
+
+function buildAlarmSection(arc) {
+  // Alarm extensions and notification class objects
+  const alarms = arc.devices.flatMap(dev => dev.objects.filter(o => /Alarm|alarm/.test(classLabel(o.classid))));
+  let html = `<div class="section"><h2>§5 Alarm Definitions</h2>`;
+  if (alarms.length === 0) {
+    html += `<p class="small">No alarm objects detected.</p></div>`;
+    return html;
+  }
+  html += `<p class="small">${alarms.length.toLocaleString()} alarm-related object${alarms.length === 1 ? "" : "s"}, grouped by class.</p>`;
+  // Group by class
+  const byClass = new Map();
+  for (const a of alarms) {
+    if (!byClass.has(a.classid)) byClass.set(a.classid, []);
+    byClass.get(a.classid).push(a);
+  }
+  for (const [cid, list] of [...byClass.entries()].sort((a, b) => b[1].length - a[1].length)) {
+    html += `<h3>${escapeHtml(classLabel(cid))} <span class="small" style="font-weight: normal;">(${list.length.toLocaleString()})</span></h3>`;
+    html += `<table><thead><tr><th>Reference</th><th>Description</th><th>Event Enable</th></tr></thead><tbody>`;
+    list.sort((a, b) => a.ref.localeCompare(b.ref, undefined, { numeric: true }));
+    for (const a of list.slice(0, 200)) {
+      const desc = extractPropString(a, "28");
+      const eeRaw = a.properties?.["35"] || "";
+      const eeMatch = eeRaw.match(/<bits[^>]*>(\d+)<\/bits>/);
+      const eeBits = eeMatch ? eeMatch[1] : "—";
+      const eeFlag = (eeMatch && eeMatch[1] !== "111") ? `<span class="warn">suppressed</span>` : "fully enabled";
+      html += `<tr><td class="ref">${escapeHtml(a.ref)}</td><td>${escapeHtml(desc)}</td><td>${escapeHtml(eeBits)} — ${eeFlag}</td></tr>`;
+    }
+    html += `</tbody></table>`;
+    if (list.length > 200) html += `<p class="small">…and ${(list.length - 200).toLocaleString()} more (truncated for printability)</p>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function buildAuditSection(arc) {
+  let html = `<div class="section"><h2>§6 Audit Findings</h2>`;
+  const audit = arc._auditAnalysis;
+  if (!audit) {
+    html += `<p class="small">Audit not run on this archive. Open the Audit tab in the viewer and the findings will be included in the next export.</p></div>`;
+    return html;
+  }
+  html += `<p class="small">Snapshot of findings from the archive's audit pass at generation time.</p>`;
+  html += `<h3>Suppressed alarms <span class="small" style="font-weight: normal;">(${audit.suppressedAlarms.length.toLocaleString()})</span></h3>`;
+  if (audit.suppressedAlarms.length === 0) {
+    html += `<p class="small">None — Event Enable is fully on for every object.</p>`;
+  } else {
+    const byClass = new Map();
+    for (const r of audit.suppressedAlarms) {
+      if (!byClass.has(r.classid)) byClass.set(r.classid, 0);
+      byClass.set(r.classid, byClass.get(r.classid) + 1);
+    }
+    html += `<table><thead><tr><th>Object class</th><th style="text-align:right;">Suppressed count</th></tr></thead><tbody>`;
+    for (const [cid, cnt] of [...byClass.entries()].sort((a, b) => b[1] - a[1])) {
+      html += `<tr><td>${escapeHtml(classLabel(cid))}</td><td style="text-align:right;">${cnt.toLocaleString()}</td></tr>`;
+    }
+    html += `</tbody></table>`;
+  }
+  html += `<h3>Duplicate descriptions <span class="small" style="font-weight: normal;">(${audit.duplicateDescriptions.length.toLocaleString()} groups)</span></h3>`;
+  if (audit.duplicateDescriptions.length === 0) {
+    html += `<p class="small">No duplicates found.</p>`;
+  } else {
+    const crossEngine = audit.duplicateDescriptions.filter(g => g.engineCount > 1).length;
+    html += `<p class="small">${crossEngine.toLocaleString()} groups span multiple engines (likely copy-paste artifacts); ${(audit.duplicateDescriptions.length - crossEngine).toLocaleString()} are within-engine duplicates (usually intentional).</p>`;
+    html += `<table><thead><tr><th>Description</th><th style="text-align:right;">Copies</th><th style="text-align:right;">Engines</th></tr></thead><tbody>`;
+    for (const g of audit.duplicateDescriptions.slice(0, 50)) {
+      const flag = g.engineCount > 1 ? `<span class="warn">cross-engine</span> ` : "";
+      html += `<tr><td>${flag}${escapeHtml(g.description)}</td><td style="text-align:right;">${g.count.toLocaleString()}</td><td style="text-align:right;">${g.engineCount}</td></tr>`;
+    }
+    html += `</tbody></table>`;
+    if (audit.duplicateDescriptions.length > 50) html += `<p class="small">…top 50 of ${audit.duplicateDescriptions.length.toLocaleString()} shown.</p>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
 function cleanFilename(s) {
   return String(s).replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
 }
@@ -5586,7 +6122,9 @@ exportMenu.querySelectorAll("button[data-fmt]").forEach(btn => {
     else if (fmt === "csv-all") exportAll(arc);
     else if (fmt === "csv-schedules") exportSchedules(arc);
     else if (fmt === "csv-trends") exportTrends(arc);
+    else if (fmt === "csv-vendor-neutral") exportVendorNeutralPointList(arc);
     else if (fmt === "json") exportJson(arc);
+    else if (fmt === "as-built") openAsBuiltDoc(arc);
     exportMenu.style.display = "none";
   });
 });
