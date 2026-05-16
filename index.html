@@ -2144,6 +2144,10 @@ function renderNodeDetail(body, crumb, classSel, objSearch, arc, node) {
     classSel.style.display = "none";
     objSearch.style.display = "none";
     body.appendChild(renderObjectPropsDom(node.obj, false));
+    // Reverse lookup: same panel as renderObjectDetail uses, wired into the
+    // tree-leaf path so left-tree clicks (which set selectedNode, not
+    // selectedObject) get it too.
+    renderReferencedByPanel(body, arc, node.obj);
     return;
   }
 
