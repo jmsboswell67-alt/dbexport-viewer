@@ -592,6 +592,7 @@
     <button data-mode="browse" class="active">Browse</button>
     <button data-mode="diff" disabled>Diff</button>
     <button data-mode="unbound" disabled>Unbound Refs</button>
+    <button data-mode="audit" disabled>Audit</button>
     <button data-mode="graphics" disabled>Graphics</button>
     <button data-mode="logic" disabled>Logic</button>
   </div>
@@ -1514,6 +1515,7 @@ const state = {
   unboundPivot: "patterns",
   unboundPivotValue: null,
   unboundSelected: new Set(),   // Set of Referring Item strings checked for the bulk-delete action
+  auditCategory: null,          // which audit category is currently selected
   graphicsPivot: "byGraphic",
   graphicsSelection: null,
   logicSelection: null,
@@ -1831,6 +1833,12 @@ function updateModeAvailability() {
   const hasGraphics = state.archives.some(x => x && x._zip && x.kind !== "unbound");
   document.querySelector('[data-mode="diff"]').disabled = !bothArchives;
   document.querySelector('[data-mode="unbound"]').disabled = !hasUnbound;
+  // Audit mode lights up whenever any scannable archive is loaded — the
+  // suppressed-alarm and duplicate-description checks run on parsed objects
+  // alone; orphaned-graphics piggybacks on the reverse-lookup index.
+  const hasScannableForAudit = state.archives.some(x => x && x.devices && x.kind !== "unbound");
+  const auditBtn = document.querySelector('[data-mode="audit"]');
+  if (auditBtn) auditBtn.disabled = !hasScannableForAudit;
   document.querySelector('[data-mode="graphics"]').disabled = !hasGraphics;
   // Logic mode needs the zip to look for Programming/System Programs files inside
   document.querySelector('[data-mode="logic"]').disabled = !hasGraphics;
@@ -1848,6 +1856,10 @@ function renderTree() {
 
   if (state.mode === "unbound") {
     return renderUnboundTree(root);
+  }
+
+  if (state.mode === "audit") {
+    return renderAuditTree(root);
   }
 
   if (state.mode === "graphics") {
@@ -2029,6 +2041,11 @@ function renderDetail() {
   if (state.mode === "unbound") {
     if (exportWrap) exportWrap.style.display = "none";
     return renderUnboundDetail(body, crumb, classSel, objSearch);
+  }
+
+  if (state.mode === "audit") {
+    if (exportWrap) exportWrap.style.display = "none";
+    return renderAuditDetail(body, crumb, classSel, objSearch);
   }
 
   if (state.mode === "graphics") {
@@ -2648,6 +2665,562 @@ function renderReferencedByPanel(body, arc, obj) {
     section.appendChild(block);
   }
   body.appendChild(section);
+}
+
+// ============ Audit reports ============
+// Three findings that operators / consultants typically pay big consulting hours
+// to discover manually. All three run purely on parsed archive data — no scan
+// required for suppressed-alarms and duplicate-descriptions; orphaned-graphics
+// uses the reverse-lookup index built by the unbound scanner.
+
+// Event Enable (property 35) is a 3-bit bitstring: to-offnormal, to-fault,
+// to-normal. "111" = fully enabled. Anything else = some transition suppressed.
+// Decode each value into a human-readable list of what's disabled.
+function decodeEventEnableSuppression(bits) {
+  // Bits come left-to-right: position 0 = to-offnormal, 1 = to-fault, 2 = to-normal
+  const labels = ["to-offnormal", "to-fault", "to-normal"];
+  const disabled = [];
+  for (let i = 0; i < Math.min(3, bits.length); i++) {
+    if (bits[i] === "0") disabled.push(labels[i]);
+  }
+  return disabled;
+}
+
+function analyzeArchiveForAudit(arc) {
+  if (arc._auditAnalysis) return arc._auditAnalysis;
+
+  // ===== 1. Suppressed alarms =====
+  // Event Enable (prop 35) is a bitstring. "111" = fully enabled. Any zero bit
+  // = the corresponding alarm transition is intentionally disabled. We pick
+  // those out, decode which transitions are off, and group by object class
+  // so the tech can scan by equipment type.
+  const suppressedAlarms = [];
+  // ===== 2. Duplicate descriptions =====
+  // Group objects by Description (prop 28). Multiple distinct refs sharing
+  // a non-empty description = either intentional (multiple zone temps named
+  // "Zone Temp") or a copy-paste artifact that confuses operators. We surface
+  // groups of 2+ and let the tech judge.
+  const descriptionGroups = new Map();  // description -> [{ ref, classid, classLabel, source }]
+
+  for (const dev of arc.devices) {
+    for (const obj of dev.objects) {
+      // -- Event Enable check --
+      const eeRaw = obj.properties?.["35"];
+      if (eeRaw) {
+        // Extract the bitstring from `<bits set="525">111</bits>` (or similar)
+        const m = eeRaw.match(/<bits[^>]*>(\d+)<\/bits>/);
+        if (m && m[1] !== "111" && /^[01]+$/.test(m[1])) {
+          const disabled = decodeEventEnableSuppression(m[1]);
+          if (disabled.length > 0) {
+            // Pull Description and Name for readability
+            const descRaw = obj.properties?.["28"] || "";
+            const nameRaw = obj.properties?.["2390"] || "";
+            const descMatch = descRaw.match(/<string>([^<]*)<\/string>/);
+            const nameMatch = nameRaw.match(/<string>([^<]*)<\/string>/);
+            suppressedAlarms.push({
+              ref: obj.ref,
+              classid: obj.classid,
+              classLabel: classLabel(obj.classid),
+              eventEnable: m[1],
+              disabledTransitions: disabled,
+              description: descMatch ? descMatch[1] : "",
+              name: nameMatch ? nameMatch[1] : "",
+            });
+          }
+        }
+      }
+
+      // -- Description grouping --
+      const descRaw = obj.properties?.["28"];
+      if (descRaw) {
+        const m = descRaw.match(/<string>([^<]*)<\/string>/);
+        if (m && m[1].trim()) {
+          const desc = m[1].trim();
+          if (!descriptionGroups.has(desc)) descriptionGroups.set(desc, []);
+          descriptionGroups.get(desc).push({
+            ref: obj.ref,
+            classid: obj.classid,
+            classLabel: classLabel(obj.classid),
+          });
+        }
+      }
+    }
+  }
+
+  // Filter to groups with 2+ entries
+  const duplicateDescriptions = [];
+  for (const [desc, refs] of descriptionGroups.entries()) {
+    if (refs.length >= 2) {
+      // Count distinct engines so we can surface cross-engine duplicates
+      // (more suspicious than within-engine duplicates which are usually fine)
+      const engines = new Set();
+      for (const r of refs) {
+        const colonIdx = r.ref.indexOf(":");
+        const slashIdx = r.ref.indexOf("/", colonIdx + 1);
+        if (colonIdx >= 0) {
+          engines.add(r.ref.slice(colonIdx + 1, slashIdx >= 0 ? slashIdx : undefined));
+        }
+      }
+      duplicateDescriptions.push({ description: desc, count: refs.length, engineCount: engines.size, refs });
+    }
+  }
+  // Sort: cross-engine duplicates first (more suspicious), then by count
+  duplicateDescriptions.sort((a, b) => {
+    if (a.engineCount !== b.engineCount) return b.engineCount - a.engineCount;
+    return b.count - a.count;
+  });
+
+  // ===== 3. Orphaned graphics =====
+  // Graphics files in the zip that nothing references. Requires the reverse-
+  // lookup index (built by the unbound scan). If the index isn't built yet,
+  // we return a placeholder and the UI offers to build it.
+  let orphanedGraphics = null;
+  if (arc._refIndex && arc._zip) {
+    orphanedGraphics = [];
+    // The graphic's "ref" is "<ADX>:<engine>/<filestem>" — same shape we
+    // synthesize for non-archive.xml file Referring Items. Use that as the
+    // lookup key.
+    // We need to enumerate zip files; this requires arc._zip which is async.
+    // Since the audit analysis is synchronous, this branch leaves the work
+    // to renderAuditDetail when the user opens that category.
+  }
+
+  arc._auditAnalysis = {
+    suppressedAlarms,
+    duplicateDescriptions,
+    orphanedGraphicsReady: !!arc._refIndex,  // whether we can compute it
+  };
+  return arc._auditAnalysis;
+}
+
+// Orphaned graphics requires async zip enumeration — built lazily when the
+// category is opened.
+async function computeOrphanedGraphics(arc) {
+  if (arc._orphanedGraphicsCache) return arc._orphanedGraphicsCache;
+  if (!arc._zip || !arc._refIndex) throw new Error("Reference index not built yet — open the Unbound Refs or Browse object panel to build it first.");
+
+  // Build folder-to-context lookup again (mirrors what the scanner does)
+  const folderToDeviceCtx = new Map();
+  for (const dev of arc.devices) {
+    for (const obj of dev.objects) {
+      if (!obj.ref) continue;
+      const colonIdx = obj.ref.indexOf(":");
+      if (colonIdx < 0) continue;
+      const slashIdx = obj.ref.indexOf("/", colonIdx + 1);
+      const adx = obj.ref.slice(0, colonIdx);
+      const engine = slashIdx >= 0 ? obj.ref.slice(colonIdx + 1, slashIdx) : obj.ref.slice(colonIdx + 1);
+      const ctx = adx + ":" + engine;
+      if (dev.folder) {
+        folderToDeviceCtx.set(dev.folder, ctx);
+        folderToDeviceCtx.set(dev.folder.replace(/\\/g, "/"), ctx);
+      }
+      break;  // first one is enough
+    }
+  }
+
+  const buf = await arc._zip.generateAsync({ type: "uint8array" });
+  const zip = await JSZip.loadAsync(buf);
+  const orphans = [];
+  zip.forEach((path, entry) => {
+    if (entry.dir) return;
+    if (!/\.xml$/i.test(path)) return;
+    // Only care about graphics files inside device folders
+    const norm = path.replace(/\\/g, "/");
+    const stem = norm.replace(/^.*\//, "").replace(/\.xml$/i, "");
+    if (!stem.startsWith("Graphics.")) return;
+    const folder = norm.replace(/\/[^/]+$/, "");
+    const ctx = folderToDeviceCtx.get(folder);
+    if (!ctx) return;
+    const graphicRef = ctx + "/" + stem;
+    const refs = arc._refIndex.get(graphicRef) || [];
+    if (refs.length === 0) {
+      orphans.push({ ref: graphicRef, source: path });
+    }
+  });
+  // Sort by name for predictable display
+  orphans.sort((a, b) => a.ref.localeCompare(b.ref));
+  arc._orphanedGraphicsCache = orphans;
+  return orphans;
+}
+
+function getAuditArchive() {
+  // Same fallback chain as getUnboundArchive — prefer the slot the user is
+  // looking at, fall back to any scannable archive.
+  const slots = [state.selectedSlot, 0, 1];
+  for (const s of slots) {
+    const a = state.archives[s];
+    if (a && a.devices && a.kind !== "unbound") return a;
+  }
+  return null;
+}
+
+function renderAuditTree(root) {
+  const arc = getAuditArchive();
+  if (!arc) return;
+  const an = analyzeArchiveForAudit(arc);
+  addSectionTitle(root, arc.name);
+
+  const categories = [
+    {
+      key: "suppressed",
+      label: "🔕 Suppressed alarms",
+      count: an.suppressedAlarms.length,
+      hint: "Event Enable bit not 111",
+    },
+    {
+      key: "duplicates",
+      label: "👥 Duplicate descriptions",
+      count: an.duplicateDescriptions.length,
+      hint: "same description, multiple refs",
+    },
+    {
+      key: "orphans",
+      label: "🗑 Orphaned graphics",
+      count: arc._orphanedGraphicsCache?.length ?? (arc._refIndex ? "?" : "scan needed"),
+      hint: "graphics with 0 incoming refs",
+    },
+  ];
+
+  for (const c of categories) {
+    const el = document.createElement("div");
+    el.className = "tree-node" + (state.auditCategory === c.key ? " selected" : "");
+    el.style.paddingLeft = "12px";
+    const countText = typeof c.count === "number" ? c.count.toLocaleString() : c.count;
+    el.innerHTML = `<span class="chevron"></span><span class="kind-icon">▸</span><span class="name"></span><span class="count">${escapeHtml(String(countText))}</span>`;
+    el.querySelector(".name").textContent = c.label;
+    el.title = c.hint;
+    el.addEventListener("click", () => {
+      state.auditCategory = c.key;
+      renderTree();
+      renderDetail();
+    });
+    root.appendChild(el);
+  }
+}
+
+async function renderAuditDetail(body, crumb, classSel, objSearch) {
+  classSel.style.display = "none";
+  objSearch.style.display = "";
+  objSearch.placeholder = "Filter rows…";
+  objSearch.value = state.objSearch || "";
+
+  const arc = getAuditArchive();
+  if (!arc) {
+    crumb.textContent = "Drop a .dbexport to begin.";
+    body.innerHTML = `<div class="empty"><div class="big">No archive loaded</div><div class="small">Drop a .dbexport — the audit reports run on the parsed objects directly.</div></div>`;
+    return;
+  }
+
+  const an = analyzeArchiveForAudit(arc);
+  crumb.innerHTML = `<strong>${escapeHtml(arc.name)}</strong> · Audit`;
+
+  const cat = state.auditCategory;
+  if (!cat) {
+    body.innerHTML = `<div class="empty"><div class="big">Pick an audit category from the left</div><div class="small">Three checks: suppressed alarms (intentional, suspicious, or forgotten?), duplicate descriptions (copy-paste artifacts that confuse operators), and orphaned graphics (cleanup candidates).</div></div>`;
+    return;
+  }
+
+  if (cat === "suppressed") return renderSuppressedAlarms(body, arc, an);
+  if (cat === "duplicates") return renderDuplicateDescriptions(body, arc, an);
+  if (cat === "orphans") return renderOrphanedGraphics(body, arc, an);
+}
+
+function renderSuppressedAlarms(body, arc, an) {
+  const wrap = document.createElement("div");
+  wrap.className = "obj-detail";
+  const q = (state.objSearch || "").toLowerCase();
+  let rows = an.suppressedAlarms;
+  if (q) {
+    rows = rows.filter(r =>
+      r.ref.toLowerCase().includes(q) ||
+      r.description.toLowerCase().includes(q) ||
+      r.classLabel.toLowerCase().includes(q)
+    );
+  }
+  // Group by class for readability
+  const byClass = new Map();
+  for (const r of rows) {
+    if (!byClass.has(r.classid)) byClass.set(r.classid, []);
+    byClass.get(r.classid).push(r);
+  }
+  const groups = [...byClass.entries()].sort((a, b) => b[1].length - a[1].length);
+
+  wrap.innerHTML = `
+    <h2 style="font-family: var(--sans); word-break: normal;">🔕 Suppressed alarms <span style="color:var(--ink-soft); font-weight: normal;">(${rows.length.toLocaleString()})</span></h2>
+    <p style="color: var(--ink-soft); max-width: 780px; margin-bottom: 16px;">
+      Objects whose Event Enable property has at least one alarm transition disabled. "to-offnormal" disabled means going-into-alarm won't notify. "to-fault" disabled means sensor failure won't notify. "to-normal" disabled means recovery won't clear. Some suppressions are intentional (a noisy sensor producing nuisance alarms); others are forgotten technician overrides that hide real problems.
+    </p>
+  `;
+  body.appendChild(wrap);
+
+  if (rows.length === 0) {
+    const empty = document.createElement("p");
+    empty.style.color = "var(--ink-soft)";
+    empty.style.fontStyle = "italic";
+    empty.textContent = "No suppressed alarms found — Event Enable is fully on for every object in this archive.";
+    wrap.appendChild(empty);
+    return;
+  }
+
+  // Export button
+  const exportBar = document.createElement("div");
+  exportBar.style.marginBottom = "12px";
+  exportBar.innerHTML = `<button class="export-btn" id="dlSuppressed">Download report (CSV)</button>`;
+  wrap.appendChild(exportBar);
+  setTimeout(() => {
+    exportBar.querySelector("#dlSuppressed")?.addEventListener("click", () => {
+      const header = ["Class", "Object Ref", "Description", "Name", "Event Enable Bits", "Disabled Transitions"];
+      const lines = [csvRow(header), ...rows.map(r => csvRow([r.classLabel, r.ref, r.description, r.name, r.eventEnable, r.disabledTransitions.join("; ")]))].join("\n") + "\n";
+      downloadBlob(`audit_suppressed_alarms_${rows.length}.csv`, "text/csv;charset=utf-8", lines);
+    });
+  }, 0);
+
+  for (const [cid, items] of groups) {
+    const block = document.createElement("div");
+    block.style.marginBottom = "20px";
+    block.innerHTML = `<h3 style="font-family: var(--sans); font-size: 14px; margin: 12px 0 8px;">${escapeHtml(classLabel(cid))} <span style="color:var(--ink-soft); font-weight: normal;">(${items.length.toLocaleString()})</span></h3>`;
+    const tbl = document.createElement("table");
+    tbl.className = "objs";
+    tbl.innerHTML = `<thead><tr><th>Description</th><th>Reference</th><th>Bits</th><th>Disabled</th></tr></thead>`;
+    const tbody = document.createElement("tbody");
+    const cap = 100;
+    for (const r of items.slice(0, cap)) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${escapeHtml(r.description || r.name || "(no description)")}</td>
+        <td class="ref"><span class="path" style="font-size:11px;">${escapeHtml(r.ref)}</span></td>
+        <td class="cid"><code>${escapeHtml(r.eventEnable)}</code></td>
+        <td style="color: var(--bad);">${escapeHtml(r.disabledTransitions.join(", "))}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+    tbl.appendChild(tbody);
+    block.appendChild(tbl);
+    if (items.length > cap) {
+      const note = document.createElement("div");
+      note.style.fontSize = "12px";
+      note.style.color = "var(--ink-dim)";
+      note.style.padding = "8px";
+      note.style.fontStyle = "italic";
+      note.textContent = `…and ${(items.length - cap).toLocaleString()} more. Export CSV for the full list.`;
+      block.appendChild(note);
+    }
+    wrap.appendChild(block);
+  }
+}
+
+function renderDuplicateDescriptions(body, arc, an) {
+  const wrap = document.createElement("div");
+  wrap.className = "obj-detail";
+  const q = (state.objSearch || "").toLowerCase();
+  let groups = an.duplicateDescriptions;
+  if (q) {
+    groups = groups.filter(g =>
+      g.description.toLowerCase().includes(q) ||
+      g.refs.some(r => r.ref.toLowerCase().includes(q))
+    );
+  }
+
+  wrap.innerHTML = `
+    <h2 style="font-family: var(--sans); word-break: normal;">👥 Duplicate descriptions <span style="color:var(--ink-soft); font-weight: normal;">(${groups.length.toLocaleString()} groups)</span></h2>
+    <p style="color: var(--ink-soft); max-width: 780px; margin-bottom: 16px;">
+      Objects sharing the same Description across multiple refs. Groups spanning multiple engines (highlighted) are the most likely copy-paste artifacts. Within-engine duplicates (e.g. eight zone-temp sensors all called "Zone Temp") are usually intentional but worth checking for naming-convention drift.
+    </p>
+  `;
+  body.appendChild(wrap);
+
+  if (groups.length === 0) {
+    const empty = document.createElement("p");
+    empty.style.color = "var(--ink-soft)";
+    empty.style.fontStyle = "italic";
+    empty.textContent = "No duplicate descriptions found.";
+    wrap.appendChild(empty);
+    return;
+  }
+
+  // Export
+  const exportBar = document.createElement("div");
+  exportBar.style.marginBottom = "12px";
+  exportBar.innerHTML = `<button class="export-btn" id="dlDupes">Download report (CSV)</button>`;
+  wrap.appendChild(exportBar);
+  setTimeout(() => {
+    exportBar.querySelector("#dlDupes")?.addEventListener("click", () => {
+      const header = ["Description", "Count", "Engine Count", "Refs (semicolon separated)"];
+      const lines = [csvRow(header), ...groups.map(g => csvRow([g.description, g.count, g.engineCount, g.refs.map(r => r.ref).join("; ")]))].join("\n") + "\n";
+      downloadBlob(`audit_duplicate_descriptions_${groups.length}.csv`, "text/csv;charset=utf-8", lines);
+    });
+  }, 0);
+
+  const tbl = document.createElement("table");
+  tbl.className = "objs";
+  tbl.innerHTML = `<thead><tr><th>Description</th><th style="text-align:right;">Copies</th><th style="text-align:right;">Engines</th><th>Sample refs</th></tr></thead>`;
+  const tbody = document.createElement("tbody");
+  const cap = 200;
+  for (const g of groups.slice(0, cap)) {
+    const tr = document.createElement("tr");
+    const crossEngineFlag = g.engineCount > 1 ? `<span style="background: var(--accent-soft); color: var(--accent); padding: 1px 6px; border-radius: 8px; font-size: 11px; margin-left: 6px;">cross-engine</span>` : "";
+    const sampleRefs = g.refs.slice(0, 3).map(r => `<div style="font-family: var(--mono); font-size: 11px; color: var(--ink-soft);">${escapeHtml(r.ref)}</div>`).join("");
+    const more = g.refs.length > 3 ? `<div style="font-size: 11px; color: var(--ink-dim); font-style: italic;">…and ${g.refs.length - 3} more</div>` : "";
+    tr.innerHTML = `
+      <td><strong>${escapeHtml(g.description)}</strong>${crossEngineFlag}</td>
+      <td class="cid" style="text-align:right;">${g.count.toLocaleString()}</td>
+      <td class="cid" style="text-align:right;">${g.engineCount}</td>
+      <td>${sampleRefs}${more}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+  tbl.appendChild(tbody);
+  wrap.appendChild(tbl);
+  if (groups.length > cap) {
+    const note = document.createElement("div");
+    note.style.fontSize = "12px";
+    note.style.color = "var(--ink-dim)";
+    note.style.padding = "8px";
+    note.style.fontStyle = "italic";
+    note.textContent = `…and ${(groups.length - cap).toLocaleString()} more groups. Export CSV for the full list.`;
+    wrap.appendChild(note);
+  }
+}
+
+async function renderOrphanedGraphics(body, arc, an) {
+  const wrap = document.createElement("div");
+  wrap.className = "obj-detail";
+  wrap.innerHTML = `
+    <h2 style="font-family: var(--sans); word-break: normal;">🗑 Orphaned graphics</h2>
+    <p style="color: var(--ink-soft); max-width: 780px; margin-bottom: 16px;">
+      Graphics files where nothing in the archive points at them — not a user tree, not another graphic, not a button. They're rendering but unreachable through normal navigation. Common causes: graphics for decommissioned equipment, "scratch" copies left by previous techs, or graphics whose linking user-tree node got deleted.
+    </p>
+  `;
+  body.appendChild(wrap);
+
+  if (!arc._refIndex) {
+    const cta = document.createElement("div");
+    cta.innerHTML = `
+      <p style="color: var(--ink-soft); margin-bottom: 12px;">Requires the reference index. Same scan used for Unbound Refs.</p>
+      <button class="btn btn-primary" id="buildIdxFromAudit">⚡ Build reference index</button>
+      <span id="auditIdxStatus" style="margin-left: 12px; color: var(--muted); font-family: var(--sans);"></span>
+    `;
+    wrap.appendChild(cta);
+    setTimeout(() => {
+      const btn = cta.querySelector("#buildIdxFromAudit");
+      const status = cta.querySelector("#auditIdxStatus");
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        btn.textContent = "Scanning…";
+        try {
+          await analyzeArchiveForUnbound(arc, msg => { status.textContent = msg; });
+          delete arc._auditAnalysis;  // re-run so the orphan count updates
+          renderTree();
+          renderDetail();
+        } catch (e) {
+          status.textContent = "Scan failed: " + e.message;
+          btn.textContent = "⚡ Build reference index";
+          btn.disabled = false;
+        }
+      });
+    }, 0);
+    return;
+  }
+
+  // Compute orphans (cached on second visit)
+  let orphans;
+  try {
+    orphans = await computeOrphanedGraphics(arc);
+  } catch (e) {
+    const err = document.createElement("p");
+    err.style.color = "var(--bad)";
+    err.textContent = "Could not compute orphans: " + e.message;
+    wrap.appendChild(err);
+    return;
+  }
+
+  const q = (state.objSearch || "").toLowerCase();
+  const filtered = q ? orphans.filter(o => o.ref.toLowerCase().includes(q)) : orphans;
+
+  const header = document.createElement("h3");
+  header.style.fontFamily = "var(--sans)";
+  header.style.fontSize = "16px";
+  header.innerHTML = `Found <strong>${filtered.length.toLocaleString()}</strong> orphaned graphic${filtered.length === 1 ? "" : "s"}${q ? " matching filter" : ""}.`;
+  wrap.appendChild(header);
+
+  if (filtered.length === 0) {
+    const empty = document.createElement("p");
+    empty.style.color = "var(--ink-soft)";
+    empty.style.fontStyle = "italic";
+    empty.textContent = orphans.length === 0
+      ? "Every graphic in the archive is referenced by something. Either nothing's been decommissioned without cleanup, or the cleanup was thorough."
+      : "No orphans match the current filter.";
+    wrap.appendChild(empty);
+    return;
+  }
+
+  // Export + Apply delete buttons
+  const actionBar = document.createElement("div");
+  actionBar.style.marginBottom = "12px";
+  actionBar.style.display = "flex";
+  actionBar.style.gap = "8px";
+  actionBar.innerHTML = `
+    <button class="export-btn" id="dlOrphans">Download report (CSV)</button>
+    <button class="export-btn" id="deleteOrphans" style="border-color: var(--accent); color: var(--accent); font-weight: 600;">Apply delete to archive — remove all orphans (.dbexport)</button>
+  `;
+  wrap.appendChild(actionBar);
+  setTimeout(() => {
+    actionBar.querySelector("#dlOrphans")?.addEventListener("click", () => {
+      const header = ["Orphaned Graphic Ref", "Source File"];
+      const lines = [csvRow(header), ...filtered.map(o => csvRow([o.ref, o.source]))].join("\n") + "\n";
+      downloadBlob(`audit_orphaned_graphics_${filtered.length}.csv`, "text/csv;charset=utf-8", lines);
+    });
+    actionBar.querySelector("#deleteOrphans")?.addEventListener("click", () => {
+      // Synthesize unbound-style rows so exportAppliedDeleteArchive can categorize
+      // and route them through the same confirm dialog + zip-write pipeline.
+      // Each orphan needs a _source for the file-level deletion logic.
+      // Stash these rows on arc.unbound so the delete pipeline finds them.
+      // To avoid corrupting an existing unbound scan, append rather than replace.
+      if (!arc.unbound) arc.unbound = [];
+      for (const o of filtered) {
+        // Only push if not already present
+        if (!arc.unbound.some(r => r["Referring Item"] === o.ref && r._source === o.source)) {
+          arc.unbound.push({
+            "Archive": arc.name,
+            "Reference Type": "Audit-orphaned",
+            "Referring Item": o.ref,
+            "Referring Attribute": "(orphaned graphic)",
+            "Referenced Item": "",
+            "Referenced Attribute": "",
+            "_source": o.source,
+          });
+        }
+      }
+      const synth = filtered.map(o => ({ "Referring Item": o.ref }));
+      exportAppliedDeleteArchive(synth, `orphaned_graphics_${filtered.length}`);
+    });
+  }, 0);
+
+  // Table
+  const tbl = document.createElement("table");
+  tbl.className = "objs";
+  tbl.innerHTML = `<thead><tr><th>Graphic</th><th>Source file</th></tr></thead>`;
+  const tbody = document.createElement("tbody");
+  for (const o of filtered.slice(0, 500)) {
+    const tr = document.createElement("tr");
+    const leaf = o.ref.split("/").pop();
+    tr.innerHTML = `
+      <td class="ref"><div class="leaf">${escapeHtml(leaf)}</div><div class="path" style="font-size:11px;">${escapeHtml(o.ref)}</div></td>
+      <td style="font-family: var(--mono); font-size: 11px; color: var(--ink-dim);">${escapeHtml(o.source)}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+  tbl.appendChild(tbody);
+  wrap.appendChild(tbl);
+  if (filtered.length > 500) {
+    const note = document.createElement("div");
+    note.style.fontSize = "12px";
+    note.style.color = "var(--ink-dim)";
+    note.style.padding = "8px";
+    note.style.fontStyle = "italic";
+    note.textContent = `Showing first 500 of ${filtered.length.toLocaleString()}. Export CSV for the full list.`;
+    wrap.appendChild(note);
+  }
 }
 
 // ============ Diff ============
