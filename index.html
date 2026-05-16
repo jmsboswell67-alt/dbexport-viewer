@@ -2555,11 +2555,17 @@ function renderReferencedByPanel(body, arc, obj) {
       const btn = section.querySelector("#buildRefIndex");
       const status = section.querySelector("#refIndexStatus");
       btn?.addEventListener("click", async () => {
+        // Snapshot the user's current selection so the scan's async wait
+        // can't be hijacked by stray clicks elsewhere — when the scan
+        // finishes we restore what they were looking at.
+        const savedDevice = state.selectedDevice;
+        const savedObject = state.selectedObject;
         btn.disabled = true;
         btn.textContent = "Scanning…";
         try {
           await analyzeArchiveForUnbound(arc, msg => { status.textContent = msg; });
-          // Re-render the detail view now that the index is populated.
+          state.selectedDevice = savedDevice;
+          state.selectedObject = savedObject;
           renderDetail();
         } catch (e) {
           console.error(e);
