@@ -2508,6 +2508,136 @@ function renderObjectDetail(body, crumb, classSel, objSearch) {
     `;
     list.appendChild(div);
   }
+
+  // ===== Referenced by panel =====
+  // Reverse lookup: every graphic / program / schedule / user tree in the
+  // archive that points at this object. The data comes from arc._refIndex
+  // which is built as a side effect of the unbound scan; if the scan hasn't
+  // run yet, we offer to kick it off (same scan, same cost).
+  renderReferencedByPanel(body, arc, obj);
+}
+
+function categorizeReferringItem(item) {
+  const slashIdx = item.indexOf("/");
+  const tail = slashIdx >= 0 ? item.slice(slashIdx + 1) : item;
+  if (tail.startsWith("$site.UserTrees")) return { kind: "userTree", label: "User trees", emoji: "🗂" };
+  if (tail.startsWith("Graphics."))       return { kind: "graphic", label: "Graphics", emoji: "🖼" };
+  if (tail.startsWith("Programming."))    return { kind: "programming", label: "Programming logic", emoji: "⚙" };
+  if (tail.startsWith("System Programs.")) return { kind: "sysProgram", label: "System programs", emoji: "⚙" };
+  if (tail.startsWith("Schedule"))        return { kind: "schedule", label: "Schedules", emoji: "📅" };
+  if (tail.startsWith("$site.SummaryDefs")) return { kind: "summary", label: "Summary definitions", emoji: "📊" };
+  // No path tail = the engine itself; or some other object
+  return { kind: "object", label: "Objects (property values)", emoji: "•" };
+}
+
+function renderReferencedByPanel(body, arc, obj) {
+  const section = document.createElement("div");
+  section.className = "obj-detail";
+  section.style.marginTop = "8px";
+  section.style.borderTop = "1px solid var(--line)";
+  section.style.paddingTop = "20px";
+
+  if (!arc._refIndex) {
+    // Index not yet built — offer to kick off the scan.
+    section.innerHTML = `
+      <h2 style="font-family: var(--sans); word-break: normal;">Referenced by</h2>
+      <p style="color: var(--ink-soft); max-width: 780px; margin-bottom: 12px;">
+        Find every graphic, program, schedule, and user tree that references this object. Useful before deleting a point ("what'll break?"), for commissioning audits ("what does this sensor actually drive?"), and for figuring out cascade behavior in complex control sequences.
+      </p>
+      <p style="color: var(--ink-soft); max-width: 780px; font-size: 13px; margin-bottom: 16px;">
+        Requires a one-time scan of the archive (same walk used to find unbound refs — running it here also enables the Unbound Refs mode for this archive).
+      </p>
+      <button class="btn btn-primary" id="buildRefIndex" style="font-size: 14px;">⚡ Build reference index</button>
+      <span id="refIndexStatus" style="margin-left: 12px; color: var(--muted); font-family: var(--sans);"></span>
+    `;
+    body.appendChild(section);
+    setTimeout(() => {
+      const btn = section.querySelector("#buildRefIndex");
+      const status = section.querySelector("#refIndexStatus");
+      btn?.addEventListener("click", async () => {
+        btn.disabled = true;
+        btn.textContent = "Scanning…";
+        try {
+          await analyzeArchiveForUnbound(arc, msg => { status.textContent = msg; });
+          // Re-render the detail view now that the index is populated.
+          renderDetail();
+        } catch (e) {
+          console.error(e);
+          status.textContent = "Scan failed: " + e.message;
+          btn.textContent = "⚡ Build reference index";
+          btn.disabled = false;
+        }
+      });
+    }, 0);
+    return;
+  }
+
+  // Index is built — show the references (if any)
+  const entries = arc._refIndex.get(obj.ref) || [];
+  const totalCount = entries.length;
+
+  // Group by category for readability
+  const groups = new Map();
+  for (const entry of entries) {
+    const cat = categorizeReferringItem(entry.referringItem);
+    if (!groups.has(cat.kind)) groups.set(cat.kind, { meta: cat, items: new Map() });
+    const g = groups.get(cat.kind);
+    // Dedup at referring-item level within a group (one row per item, listing all attrs it references through)
+    if (!g.items.has(entry.referringItem)) {
+      g.items.set(entry.referringItem, { attrs: new Set(), source: entry.source });
+    }
+    g.items.get(entry.referringItem).attrs.add(entry.referringAttr);
+  }
+  // Sort groups by typical interest (user trees / programs / graphics first)
+  const order = ["userTree", "programming", "sysProgram", "graphic", "schedule", "summary", "object"];
+  const sortedGroups = [...groups.entries()].sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
+
+  const uniqueItemCount = sortedGroups.reduce((s, [, g]) => s + g.items.size, 0);
+
+  section.innerHTML = `
+    <h2 style="font-family: var(--sans); word-break: normal;">Referenced by <span style="color:var(--ink-soft); font-weight: normal;">(${uniqueItemCount.toLocaleString()} item${uniqueItemCount === 1 ? "" : "s"}, ${totalCount.toLocaleString()} use${totalCount === 1 ? "" : "s"})</span></h2>
+  `;
+
+  if (totalCount === 0) {
+    const empty = document.createElement("p");
+    empty.style.color = "var(--ink-soft)";
+    empty.style.fontStyle = "italic";
+    empty.style.maxWidth = "780px";
+    empty.textContent = "No references found. Nothing in this archive's graphics, programs, user trees, or schedules points at this object — it's likely safe to delete, or this object is purely an endpoint (an input from a physical sensor, etc.).";
+    section.appendChild(empty);
+    body.appendChild(section);
+    return;
+  }
+
+  for (const [kind, group] of sortedGroups) {
+    const block = document.createElement("div");
+    block.style.marginBottom = "16px";
+    const itemsArr = [...group.items.entries()];
+    // Show up to 50 per group, with a count if truncated
+    const cap = 50;
+    const visible = itemsArr.slice(0, cap);
+    const truncated = itemsArr.length > cap;
+    block.innerHTML = `
+      <div style="font-family: var(--sans); font-size: 14px; font-weight: 600; color: var(--ink); margin: 8px 0 6px 0;">
+        ${group.meta.emoji} ${escapeHtml(group.meta.label)} <span style="color: var(--ink-soft); font-weight: normal;">(${itemsArr.length.toLocaleString()})</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        ${visible.map(([item, info]) => {
+          const leaf = item.split(/[\.:\/]/).pop();
+          const attrs = [...info.attrs].filter(a => a && a !== "(file content)" && a !== "(logic / graphic binding)").join(", ");
+          return `<div style="font-family: var(--mono); font-size: 12px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-alt);">
+            <div style="font-weight: 600; color: var(--accent);">${escapeHtml(leaf)}</div>
+            <div style="color: var(--ink-soft); font-size: 11px;">${escapeHtml(item)}</div>
+            ${attrs ? `<div style="font-size: 11px; color: var(--ink-dim); margin-top: 2px;">via attr: ${escapeHtml(attrs)}</div>` : ""}
+            <div style="font-size: 10px; color: var(--ink-dim); margin-top: 2px;">source: ${escapeHtml(info.source)}</div>
+          </div>`;
+        }).join("")}
+        ${truncated ? `<div style="font-size: 12px; color: var(--ink-dim); padding: 6px 10px; font-style: italic;">…and ${(itemsArr.length - cap).toLocaleString()} more in this category</div>` : ""}
+      </div>
+    `;
+    section.appendChild(block);
+  }
+  body.appendChild(section);
 }
 
 // ============ Diff ============
@@ -3382,11 +3512,15 @@ async function analyzeArchiveForUnbound(arc, onProgress) {
 
   // 1) Build:
   //   - validRefs: the universe of defined refs (anything an object actually defines)
-  //   - definedEngines: set of engine-portion names — used to reject false positives
-  //     where the regex captured an engine string as the ADX prefix
+  //   - definedADXes: set of ADX-portion names (the part before the first colon
+  //     in any object's ref). In Metasys, a site's ADX name often appears as
+  //     BOTH the ADX prefix AND a self-engine (e.g. DACC-ADX-02:DACC-ADX-02/...)
+  //     so the engine name is not a reliable "this is just an engine" signal.
+  //   - definedEngines: set of engine-portion names (between the colon and slash).
   //   - folderToDeviceCtx: maps each device's zip folder to its "<ADX>:<engine>"
   //     prefix, so we can synthesize sensible Referring Items for non-archive.xml files
   const validRefs = new Set();
+  const definedADXes = new Set();
   const definedEngines = new Set();
   const folderToDeviceCtx = new Map();
   for (const dev of arc.devices) {
@@ -3397,9 +3531,11 @@ async function analyzeArchiveForUnbound(arc, onProgress) {
       const colonIdx = obj.ref.indexOf(":");
       if (colonIdx < 0) continue;
       const slashIdx = obj.ref.indexOf("/", colonIdx + 1);
+      const adx = obj.ref.slice(0, colonIdx);
       const engine = slashIdx >= 0 ? obj.ref.slice(colonIdx + 1, slashIdx) : obj.ref.slice(colonIdx + 1);
+      definedADXes.add(adx);
       if (engine) definedEngines.add(engine);
-      if (!ctx) ctx = obj.ref.slice(0, colonIdx) + ":" + engine;
+      if (!ctx) ctx = adx + ":" + engine;
     }
     if (ctx && dev.folder) {
       folderToDeviceCtx.set(dev.folder, ctx);
@@ -3409,13 +3545,32 @@ async function analyzeArchiveForUnbound(arc, onProgress) {
 
   const seen = new Set();
   const rows = [];
+  // Reverse-lookup index: every ref-shaped string we see (bound or unbound)
+  // maps to a list of places it's used. Powers "Referenced by (N)" in the
+  // Browse-mode object detail.
+  const refIndex = new Map();
+  const indexSeen = new Set();   // dedupe (target | referring | attr | source)
   const pushRow = (referringItem, referringAttr, candidate, sourceFile) => {
     let ref = candidate.replace(/[\s.,;:)\]]+$/, "");
     if (!ref.includes("/") || !ref.includes(":")) return;
     const adx = ref.split(":", 1)[0];
     if (!/[A-Za-z]/.test(adx)) return;        // pure-digit prefix = IP/timestamp fragment
     if (adx === "data") return;                // inline data URL (data:image/png/...) from graphics assets
-    if (definedEngines.has(adx)) return;       // engine-as-ADX false positive
+    // Engine-as-ADX false positive only matters if the captured ADX is
+    // *exclusively* an engine name — when it's also a real ADX (common pattern
+    // where the site's main ADX appears as both ADX and self-engine in its
+    // refs), we must NOT reject, or every legitimate same-ADX ref disappears.
+    if (definedEngines.has(adx) && !definedADXes.has(adx)) return;
+
+    // Index every ref (bound or unbound) — reverse lookup needs both.
+    const indexKey = ref + "|" + referringItem + "|" + referringAttr + "|" + sourceFile;
+    if (!indexSeen.has(indexKey)) {
+      indexSeen.add(indexKey);
+      if (!refIndex.has(ref)) refIndex.set(ref, []);
+      refIndex.get(ref).push({ referringItem, referringAttr, source: sourceFile });
+    }
+
+    // Below this line we only care about UNBOUND refs (the original scan output).
     if (validRefs.has(ref)) return;
     const key = referringItem + "|" + referringAttr + "|" + ref;
     if (seen.has(key)) return;
@@ -3528,6 +3683,7 @@ async function analyzeArchiveForUnbound(arc, onProgress) {
 
   arc._derivedUnboundRows = rows;
   arc._validRefs = validRefs;          // used by the rename-confidence check in the patterns view
+  arc._refIndex = refIndex;            // reverse-lookup: ref -> [{ referringItem, referringAttr, source }]
   arc.unbound = rows;
   delete arc._unboundAnalysis;
   return rows;
