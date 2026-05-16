@@ -135,11 +135,10 @@ Logged as future work; not blocking signal-test.
 ### v0.3.11 — CCT logic block dictionary harvest from tcollins2 (2026-05-16) ✅
 
 Community contribution. u/tcollins2 on r/BuildingAutomation dumped their
-internal CCT class-ID database (~80 entries). Independently, u/twobarb
-(Austin Finke, github.com/Crazy-Controls-Thoughts) posted a CCT
-screenshot corroborating at least one entry (526 = Input Float Block,
-shown wired up in his CCT session). Two independent sources on the same
-entry — high confidence in the rest of tcollins2's list.
+internal CCT class-ID database (~80 entries) and posted a CCT screenshot
+visually confirming 526 = Input Float Block wired up in their CCT
+session — table + visual from the same source is strong corroboration
+for the rest of the list.
 
 Integrated **59 new class IDs** into `CLASS_NAMES` (skipping the ~20 we
 already had):
