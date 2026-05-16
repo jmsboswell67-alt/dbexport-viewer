@@ -1481,9 +1481,19 @@ function computeCounts(node) {
 function deriveSemanticKind(node) {
   const c = parseInt(node.classid, 10);
   // Engines / supervisors
-  if ([192, 425, 448, 613, 651, 871, 872].includes(c)) return "engine";
+  // 862 IP_FEC controller-device-root added from tcollins2 dictionary harvest.
+  if ([192, 425, 448, 613, 651, 862, 871, 872].includes(c)) return "engine";
   // Controllers / equipment
-  if ([197, 278, 508].includes(c)) return "equipment";
+  // Expanded with the HVAC/control equipment classes tcollins2 contributed:
+  // VAV Balancer (631), Dual Duct Endpoint (633), Device Enable Determination (701),
+  // Equipment Interlock (702), Capacity Calculation (705), Load Calculator (706),
+  // Blocking Protection (707), Pump Selector (708), Chiller Selector (709),
+  // Lead Compensator (721), Near Optimal OL Cooling Tower (724), Tower Selector (745),
+  // Heat Exchanger Selector (768), SA Bus Device Integration (910), Device/Boiler/
+  // Chiller Stagers (916/917/918). These are functional-equipment objects that
+  // own logic-block children, so they belong above logic in the tree.
+  if ([197, 278, 508, 631, 633, 701, 702, 705, 706, 707, 708, 709,
+       721, 724, 745, 768, 910, 916, 917, 918].includes(c)) return "equipment";
   // Schedules
   if ([263, 519].includes(c)) return "schedule";
   // Graphics
@@ -1491,15 +1501,34 @@ function deriveSemanticKind(node) {
   // Trend logs
   if (c === 155 || c === 20) return "trendlog";
   // Alarms
-  if (c === 156 || c === 172) return "alarm";
-  // Programming/logic
+  // 704 Device Alarm Class added from tcollins2 dictionary harvest.
+  if ([156, 172, 704].includes(c)) return "alarm";
+  // Programming / logic blocks
+  // Big expansion from tcollins2 dictionary harvest. The CCT block library
+  // lives mostly in the 523-595 range (Input/Output Float/Enum/Boolean Blocks,
+  // PID, math, compare, timer, latch, sequencer, etc.) plus scattered higher IDs
+  // (612 Box Flow Test, 614 Reliability Merge, 715/716 Override Check,
+  // 776 Expression, 779 Fault Manager, 798 Global Sequencer, 880 Moving Avg
+  // Filter). Previously these were misclassified as "point" because the
+  // catch-all "500 <= c <= 606" rule below grabbed them — that's now narrowed
+  // so this range correctly routes to logic.
   if ([146, 336, 337, 338, 342].includes(c)) return "logic";
+  if (c >= 523 && c <= 595) return "logic";
+  if ([612, 614, 715, 716, 776, 779, 798, 880].includes(c)) return "logic";
+  // Logic sub-blocks (the $NNN anchors inside Programming graphs)
+  if ([257, 326, 327, 328, 329, 337, 362].includes(c)) return "logic";
   // Folder
   if (c === 176) return "folder";
   // BACnet & FEC point classes
+  // Narrowed the 500-606 catch-all to avoid claiming the logic-block range
+  // above. Real point/mapper classes are 500-522 (BACnet std mappers),
+  // 596-606 (FEC mappers); remote I/O 670-674 (RAI/RAO/RBI/RBO) and 628
+  // (Net Sensor AI) added from tcollins2.
   if (c >= 0 && c <= 25) return "point";
-  if (c >= 500 && c <= 606) return "point";
+  if (c >= 500 && c <= 522) return "point";
+  if (c >= 596 && c <= 606) return "point";
   if (c >= 147 && c <= 152) return "point";
+  if ([628, 670, 671, 672, 673, 674].includes(c)) return "point";
   // Fallback
   return node.children.size > 0 ? "equipment" : "point";
 }
@@ -5194,7 +5223,10 @@ async function renderLogicDetail(body, crumb, classSel, objSearch) {
 // quick "are the totals stable?" sanity check).
 function archiveStats(arc) {
   // Class buckets the user actually cares about
-  const POINT_CLASSES = new Set(["0","1","2","3","4","5","13","19","165","174","175","176","500","501","502","503","504","505","513","514","515","599","600","601","602","603","604","605","606"]);
+  // Added 628 (Net Sensor AI) and 670-674 (Remote I/O: RIO DEV, RAI, RAO, RBI,
+  // RBO) from tcollins2 dictionary — these are point-class equivalents that
+  // exist on FEC-with-remote-I/O sites and were previously uncounted.
+  const POINT_CLASSES = new Set(["0","1","2","3","4","5","13","19","165","174","175","176","500","501","502","503","504","505","513","514","515","599","600","601","602","603","604","605","606","628","670","671","672","673","674"]);
   const stats = {
     deviceCount: arc.devices.length,
     objectCount: 0,
@@ -5703,6 +5735,8 @@ function exportVendorNeutralPointList(arc) {
     "500","501","502","503","504","505",           // BACnet point variants
     "513","514","515",                             // BACnet MI/MO/Notification
     "599","600","601","602","603","604","605","606", // FEC point types
+    "628",                                          // Net Sensor AI (tcollins2)
+    "670","671","672","673","674",                  // Remote I/O: RIO DEV, RAI, RAO, RBI, RBO (tcollins2)
   ]);
   const rows = [];
   for (const dev of arc.devices) {
@@ -5801,7 +5835,7 @@ function buildAsBuiltHTML(arc) {
   const date = new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
   const totalObjects = arc.devices.reduce((s, d) => s + d.objects.length, 0);
   const totalPoints = arc.devices.reduce((s, d) =>
-    s + d.objects.filter(o => /^(0|1|2|3|4|5|13|19|165|17[4-6]|50[0-5]|51[3-5]|5(9[9])|60[0-6])$/.test(o.classid)).length, 0);
+    s + d.objects.filter(o => /^(0|1|2|3|4|5|13|19|165|17[4-6]|50[0-5]|51[3-5]|5(9[9])|60[0-6]|628|67[0-4])$/.test(o.classid)).length, 0);
   const totalSchedules = arc.devices.reduce((s, d) =>
     s + d.objects.filter(o => o.classid === "17" || o.classid === "263").length, 0);
   const totalAlarms = arc.devices.reduce((s, d) =>
@@ -5963,7 +5997,10 @@ function buildDeviceInventorySection(arc) {
 }
 
 function buildPointListSection(arc) {
-  const POINT_CLASSES = new Set(["0","1","2","3","4","5","13","19","165","174","175","176","500","501","502","503","504","505","513","514","515","599","600","601","602","603","604","605","606"]);
+  // Includes 628 (Net Sensor AI) and 670-674 (RIO DEV, RAI, RAO, RBI, RBO)
+  // from the tcollins2 dictionary harvest — remote I/O is real points and
+  // should appear in the as-built point list.
+  const POINT_CLASSES = new Set(["0","1","2","3","4","5","13","19","165","174","175","176","500","501","502","503","504","505","513","514","515","599","600","601","602","603","604","605","606","628","670","671","672","673","674"]);
   let html = `<div class="section"><h2>§3 Point List</h2>`;
   html += `<p class="small">Every input, output, value, and multistate point in the archive, organized by controller.</p>`;
   for (const dev of arc.devices) {
