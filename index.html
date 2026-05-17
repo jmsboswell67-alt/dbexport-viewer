@@ -673,6 +673,142 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 // Original JCI files are not redistributed.
 // =================================================================
 
+// ENUM_SETS — enum member ID → display name, keyed by EnumSetId from
+// FDB_Control_10_8___Firmware_12_0.dbo.tblEnumMember (Firmware 12.0 / CCT 18.0.1.7).
+// Captured via SQL query against local FDB SQL Server instance.
+// Covers the sets that appear most frequently as property values in .dbexport archives.
+const ENUM_SETS = {
+  // Set 507 — Unit (484 members). Property 117 values.
+  507: {
+    0:"sq meter",1:"sq ft",2:"mA",3:"A",4:"ohm",5:"V",6:"kV",7:"MV",8:"VA",9:"kVA",
+    10:"MVA",11:"VAR",12:"kVAR",13:"MVAR",14:"deg phase",15:"PF",16:"J",17:"kJ",
+    18:"Wh",19:"kWh",20:"Btu",21:"thm",22:"ton-h",23:"J/kg",24:"Btu/lb dry air",
+    25:"cph",26:"cpm",27:"Hz",28:"gram water/kg",29:"%RH",30:"mm",31:"m",32:"in",
+    33:"ft",34:"W/sq ft",35:"W/sq meter",36:"lm",37:"lx",38:"ft candles",39:"kg",
+    40:"lbm",41:"tons",42:"kg/s",43:"kg/min",44:"kg/h",45:"lbm/min",46:"lbm/h",
+    47:"W",48:"kW",49:"MW",50:"Btuh",51:"hp",52:"tons refr",53:"Pa",54:"kPa",
+    55:"bar",56:"psi",57:"cm wc",58:"in wc",59:"mm HG",60:"cm HG",61:"in HG",
+    62:"deg C",63:"K",64:"deg F",65:"degree days C",66:"degree days F",67:"years",
+    68:"months",69:"weeks",70:"days",71:"hours",72:"minutes",73:"seconds",
+    74:"m/s",75:"km/h",76:"ft/s",77:"ft/min",78:"mph",79:"cu ft",80:"cu meter",
+    81:"imp Gal",82:"L",83:"Gal",84:"cfm",85:"cu meter/s",86:"imp gpm",87:"L/s",
+    88:"L/min",89:"gpm",90:"deg angular",91:"deg C/h",92:"deg C/min",93:"deg F/h",
+    94:"deg F/min",96:"ppm",97:"ppb",98:"%",99:"percent/sec",100:"per min",
+    101:"per sec",102:"psi/deg F",103:"radian",104:"rpm",105:"Currency 1",
+    106:"Currency 2",107:"Currency 3",108:"Currency 4",109:"Currency 5",
+    110:"Currency 6",111:"Currency 7",112:"Currency 8",113:"Currency 9",
+    114:"Currency 10",115:"sq in",116:"sq cm",117:"Btu/lb",118:"cm",
+    119:"lbs mass/sec",120:"delta deg F",121:"delta deg K",122:"kohm",123:"Mohm",
+    124:"mV",125:"kJ/kg",126:"MJ",127:"J/K",128:"J/kg K",129:"kHz",130:"MHz",
+    131:"per hour",132:"mW",133:"hPa",134:"mbar",135:"cu meter/h",136:"L/h",
+    137:"kWh/sq meter",138:"kWh/sq ft",139:"MJ/sq meter",140:"MJ/sq ft",
+    141:"W/sq meter K",142:"cu ft/s",143:"% Obscuration/ft",144:"% Obscuration/m",
+    145:"mohm",146:"MWh",147:"kBtu",148:"MBtu",149:"kJ/kg dry air",
+    150:"MJ/kg dry air",151:"kJ/K",152:"MJ/K",153:"N",154:"g/s",155:"g/min",
+    156:"Ton/h",157:"kBtu/h",158:"hundredths of sec",159:"ms",160:"N m",
+    161:"mm/s",162:"mm/min",163:"m/min",164:"m/h",165:"cu meter/min",
+    166:"m/s/s",167:"A/m",168:"A/sq m",169:"A m",170:"F",171:"H",172:"ohm m",
+    173:"S",174:"S/m",175:"T",176:"V/K",177:"V/m",178:"Wb",179:"cd",
+    180:"cd/sq m",181:"K/h",182:"K/min",183:"j s",184:"rad/s",185:"sq m/N",
+    186:"kg/cu meter",187:"N s",188:"N/m",189:"W/m/K",190:"uS",191:"cu ft/h",
+    192:"gph",193:"km",194:"um",195:"g",196:"mg",197:"mL",198:"mL/s",199:"dB",
+    200:"dBmV",201:"dbV",202:"mS",203:"Whr",204:"kWhr",205:"MWhr",206:"mm wc",
+    207:"%o",208:"g/g",209:"kg/kg",210:"g/kg",211:"mg/g",212:"mg/kg",213:"g/mL",
+    214:"g/L",215:"mg/L",216:"ug/L",217:"g/cu meter",218:"mg/cu meter",
+    219:"ug/cu meter",220:"ng/cu meter",221:"g/cu cm",222:"Bq",223:"kBq",
+    224:"MBq",225:"Gy",226:"mGy",227:"uGy",228:"Sv",229:"mSv",230:"uSv",
+    231:"uSv/h",232:"dB(A)",233:"NTU",234:"pH",235:"g/sq meter",236:"min/K",
+    237:"ohm m sq /m",238:"As",239:"VAh",240:"kVAh",241:"MVAh",242:"VArh",
+    243:"kVArh",244:"MVArh",245:"V sq h",246:"A sq h",247:"J/h",248:"cu ft/d",
+    249:"cu m/d",250:"Wh/cu m",251:"J/cu m",252:"Mole %",253:"Pas",
+    254:"Mstd cu ft/min",256:"bytes",258:"counts",259:"people",260:"cfm/person",
+    261:"L/person",262:"min/deg sq",263:"kW/min",264:"% open",265:"% closed",
+    266:"flowC cfm",267:"flowC cu meters/h",268:"flowC L/s",270:"Entries",
+    271:"K Factor",272:"Custom",274:"Acre",275:"Atmosphere",276:"cu in",
+    278:"deg/s",279:"ft wc",280:"ft-lb",281:"FNU",282:"FTU",283:"gsm",
+    286:"kgpm",287:"klb",289:"kl",292:"Mg",294:"Miles",298:"NTU",301:"megabytes",
+    302:"% Cmd",303:"in. Pa",304:"KCL/Kg",305:"Hr:Mn",306:"seconds/hour",
+    308:"lb/cu ft",309:"Change per Minute",310:"Digits",311:"Attempts",
+    312:"Entities",313:"kilobytes",314:"failures per day",316:"dekatherm",
+    317:"Nm3",318:"ccf",319:"Mlb",320:"tonne",321:"GW",322:"GWh",323:"cal",
+    324:"s/deg",325:"kW/deg C",326:"Ton/deg F",327:"percent/min",328:"min/deg",
+    329:"psiG",330:"psiD",331:"kPaG",332:"kPaD",333:"MILS",334:"kW/Ton",
+    335:"COP",336:"kWc",337:"deg F/s",338:"deg C/s",339:"Hz/s",340:"uSec",
+    341:"MBtu/h",342:"Cooling Tower Tons",343:"kW/(MBtu/h)",344:"deg R",
+    345:"per MBtu",346:"per kWh",347:"per MWh",348:"per ton-h",349:"per Btu",
+    350:"per J",351:"per kJ",352:"per MBtu/h",353:"per kW",354:"per ton",
+    355:"per hp",356:"per cu meter",357:"per cu ft",358:"per Gal",
+    359:"delta deg C",360:"per delta deg C",361:"per delta deg F",
+    362:"monies per MBtu",363:"monies per kWh",364:"monies per MWh",
+    365:"monies per ton-h",366:"monies per Btu",367:"monies per J",
+    368:"monies per kJ",369:"monies per cu meter",370:"monies per cu ft",
+    371:"monies per Gal",372:"monies per hour",373:"monies per min",
+    374:"monies per sec",375:"monies/(MBtu/h)",376:"monies per kW",
+    377:"monies per ton",378:"monies per hp",379:"tonnes per MBtu",
+    380:"tonnes per kWh",381:"tonnes per MWh",382:"tonnes per ton-h",
+    383:"tonnes per Btu",384:"tonnes per J",385:"tonnes per kJ",
+    386:"tonnes per cu meter",387:"tonnes per cu ft",388:"tonnes per Gal",
+    389:"tonnes per hour",390:"tonnes per min",391:"tonnes per sec",
+    392:"monies/(Gal/h)",393:"monies/(cu meter/h)",394:"kW per hour",
+    395:"kW per min",396:"kW per sec",397:"NaU",512:"mmH2O",513:"mmAq",
+    514:"kg/cm2",515:"mH2O",516:"MPa",517:"GPa",518:"GJ",519:"kcal/kg",
+    526:"klx",531:"MJ/h",532:"GJ/h",535:"J/h",536:"kcal",537:"Mcal",
+    538:"Gcal",540:"kcal/h",541:"kJ/h",543:"Nm3/h",545:"%MV",
+    47808:"std cu ft/d",47809:"Mstd cu ft/d",47929:"bits per second",
+  },
+  // Set 503 — Reliability. Property 103 values.
+  503: {
+    0:"Reliable",1:"No Input",2:"Out of range high",3:"Out of range low",
+    4:"Open",5:"Shorted",6:"No Output",7:"Unreliable",8:"Process Error",
+    9:"Multi-State Fault",10:"Configuration Error",12:"Communications failure",
+    13:"Member fault",14:"Monitored Object fault",15:"Tripped",16:"Lamp Failure",
+    17:"Activation Failure",64:"Unreliable rate",65:"Math error",66:"Math overflow",
+    67:"Math underflow",68:"String overflow",69:"Divide by zero",70:"Comm loss",
+    71:"Memory overflow",72:"Device error",73:"Not a number",74:"Input out of range",
+    75:"Inconsistent inputs",76:"Data Convert Error",77:"Convert Overflow",
+    78:"Read Error",79:"Write Error",80:"Execute Error",81:"Pcode Error",
+    82:"Stall During Post",83:"Did Not Stall",84:"Cal Stroke too Big",
+    85:"Cal Stroke too Small",86:"Not Calibrated",87:"Connections Failed",
+    88:"Initialization Error",89:"Attr Init Error",90:"No Object Name",
+    91:"Invalid Lin Table",92:"Null Data Returned",93:"Input Unreliable",
+    94:"Disabled",95:"Inputs cannot be equal",96:"Setpoint Unreliable",
+    97:"Command Unreliable",98:"Required Input Unavailable",
+    99:"Failed to Synchronize",100:"Invalid Input",101:"Output cannot be determined",
+    102:"Internal Error",103:"Destinations Unavailable",104:"Write Failed",
+    105:"Data Type Mismatch",106:"Source Unavailable",107:"Round Off Error",
+    108:"Clamped Low",109:"Clamped High",110:"Value Timed Out",
+    111:"Data Model Template Not Found",112:"Not Present",113:"Output out of range",
+    114:"Value Not Set",115:"Invalid Value For Application",
+  },
+  // Set 5 — BAC Event State. Property 36 / event-state fields.
+  5: {0:"Normal",1:"Fault",2:"Off Normal",3:"High Limit",4:"Low Limit",5:"Life Safety Alarm",6:"Offline"},
+  // Set 170 — BAC Notify Type.
+  170: {0:"Alarm",1:"Event",2:"Ack Notification"},
+  // Set 1 — Write Priority (BACnet command priority array).
+  1: {
+    0:"0 (No Priority)",1:"1 (Manual Life Safety)",2:"2 (Auto Life Safety)",
+    3:"3 (Application)",4:"4 (Application)",5:"5 (Critical Equipment)",
+    6:"6 (Minimum On Off)",7:"7 (Heavy Equip Delay)",8:"8 (Operator Override)",
+    9:"9 (Application)",10:"10 (Application)",11:"11 (Demand Limiting)",
+    12:"12 (Application)",13:"13 (Load Rolling)",14:"14 (Application)",
+    15:"15 (Scheduling)",16:"16 (Default)",
+  },
+  // Set 25 — JCI System Status.
+  25: {
+    0:"Main Download Req",1:"Code Download",2:"Class Code Download",3:"Subclass Download",
+    4:"Instance Download",5:"Startup",6:"Operational",7:"Subclass Upload",
+    8:"Instance Upload",9:"Onboard Upload",10:"Onboard Download",11:"Boot Download Req",
+    12:"Start Download Req",13:"Boot Code Download",14:"Start Code Download",
+    15:"Instances Deleted",16:"Dict Download",17:"Dict Download Req",
+    18:"Device archive failed",19:"Reset Needed",20:"Cold Reset Needed",
+    21:"Partial Instance Load",44:"Non-operational",
+  },
+  // Set 80 — BAC Device Status.
+  80: {0:"Operational",1:"Operational ReadOnly",2:"Download Required",3:"Download In Progress",4:"Non Operational",5:"Backup in Progress"},
+  // Set 116 — Class Category (objectCategoryEnumSet equivalent).
+  116: {0:"Standard Object",1:"Assembly Object",2:"Application Object",3:"Site Device",4:"Other Device",5:"Group Object"},
+};
+
 const CLASS_NAMES = {
   0: "BACnet Analog Input",
   1: "BACnet Analog Output",
@@ -760,12 +896,21 @@ const CLASS_NAMES = {
   227: "BACnet Electric Demand Monitoring",
   228: "BACnet Electric Demand Control",
   236: "Local Application",
+  239: "BO HW Output",        // CCT: physical binary output (relay/triac); Primitives.xml
+  240: "AI HW Input",         // CCT: physical analog input (0-10V/4-20mA/thermistor); Primitives.xml
+  241: "AO HW Output",        // CCT: physical analog output (0-10V/4-20mA); Primitives.xml
+  242: "BI HW Input",         // CCT: physical binary/digital input (dry contact); Primitives.xml
+  243: "CI HW Input",         // CCT: counter/pulse input; Primitives.xml
   245: "N1 Program Control",
   249: "Solar Clock",
+  251: "PAO",                 // CCT: Primitives.xml
+  252: "PID",                 // CCT: Proportional-Integral-Derivative controller; Primitives.xml
   255: "Diagnostic",
   257: "Logic Sub-block",
+  259: "DAO",                 // CCT: Primitives.xml
   263: "JCI Schedule",
   264: "JCI Loop",
+  266: "EWMA",                // CCT: Exponentially Weighted Moving Average filter; Primitives.xml
   274: "Analog Totalization",
   275: "Runtime Totalization",
   276: "Event Totalization",
@@ -777,6 +922,7 @@ const CLASS_NAMES = {
   290: "N2 Integration",
   292: "Ethernet IP",
   300: "Trend Log Multiple",
+  352: "Event Message Texts Config",  // FDB tblAttribute; 42K occurrences
   307: "MSTP Integration",
   313: "JCI Notification",
   319: "Data Broadcast",
@@ -851,6 +997,8 @@ const CLASS_NAMES = {
   520: "BACnet Trend Log",
   521: "BACnet Life Safety Point",
   522: "BACnet Life Safety Zone",
+  523: "ZN-T Setpoint",        // CCT: zone temperature setpoint determination; Primitives.xml
+  524: "Occupancy Mode",       // CCT: occupied/standby/unoccupied determination; Primitives.xml
   526: "Input Float Block",
   527: "Output Float Block",
   528: "Input Enumeration Block",
@@ -858,21 +1006,47 @@ const CLASS_NAMES = {
   530: "Input Boolean Block",
   531: "Output Boolean Block",
   532: "Summer Winter Compensation Primitive",
+  533: "Lighting Control",     // CCT: Primitives.xml
   536: "Control Activity",
+  538: "Last Value",           // CCT: holds last valid (non-fault) signal value; Primitives.xml
+  539: "Reliability Check",    // CCT: monitors signal reliability, outputs fault status; Primitives.xml
+  540: "State Selection",      // CCT: selects between operating states/modes; Primitives.xml
+  541: "FSM",                  // CCT: Finite State Machine; Primitives.xml
+  543: "Command Hierarchy",    // CCT: BACnet priority array arbitration; Primitives.xml
+  546: "Line Segment",         // CCT: piecewise linear interpolation (reset schedules); Primitives.xml
   551: "Float Constant",
   552: "Boolean Constant",
   554: "File",
   555: "Control Point",
   556: "Sensor Primitive",
+  558: "Timer",                // CCT: on-delay/off-delay/pulse/elapsed-time; Primitives.xml
+  559: "Boolean Logic",        // CCT: AND/OR/NOT/XOR operations; Primitives.xml
   560: "Comparison",
+  561: "Math",                 // CCT: add/subtract/multiply/divide/min/max; Primitives.xml
+  562: "Mux",                  // CCT: multiplexer, selects one of several float inputs; Primitives.xml
   563: "ABH Primitive",
   564: "DP Primitive",
   565: "Enth Primitive",
   566: "RH Primitive",
   567: "WB Primitive",
   568: "Enumeration Constant",
+  569: "Rate Limiter",         // CCT: slew rate limiter for float signals; Primitives.xml
   570: "Flow",
-  575: "Sequence",
+  571: "Sequencer",            // CCT: lead/lag rotation for redundant equipment; Primitives.xml
+  573: "Span",                 // CCT: linear scaling between min/max ranges; Primitives.xml
+  574: "Latch",                // CCT: set/reset latch; Primitives.xml
+  575: "Control Sequence",     // CCT: top-level container for controller application; Primitives.xml
+  579: "MSC Pre Processor",    // CCT: Primitives.xml
+  580: "Multi-Stage Controller", // CCT: stages discrete equipment on/off; Primitives.xml
+  581: "Free Cooling",         // CCT: OA vs return air economizer determination; Primitives.xml
+  582: "PID Pre Process",      // CCT: conditions process variable before PID; Primitives.xml
+  584: "PVDC",                 // CCT: Primitives.xml
+  585: "Standards Table",      // CCT: reference table of standard JCI values; Primitives.xml
+  587: "Statistic",            // CCT: min/max/average across inputs; Primitives.xml
+  591: "Totalization",         // CCT: accumulates running total over time; Primitives.xml
+  592: "Pass Through",         // CCT: routes signal unchanged, makes value a named point; Primitives.xml
+  593: "Text",                 // CCT: stores/outputs a text string; Primitives.xml
+  595: "Execution Status",     // CCT: monitors control sequence execution status; Primitives.xml
   597: "REM Device",
   598: "RIOM Device",
   599: "Analog Input Mapper",
@@ -885,15 +1059,46 @@ const CLASS_NAMES = {
   606: "JCI Multistate Mapper",
   610: "PC NAE",
   611: "PC NIE (8500)",
+  612: "Box Flow Test",        // CCT: VAV box airflow calibration test; Primitives.xml
   613: "NAE 35",
+  614: "Reliability Merge",    // CCT: combines reliability statuses from multiple sources; Primitives.xml
   627: "Net Sensor Device",
+  628: "Net Sensor AI",        // CCT: analog input from networked sensor (ZFR/SA bus); Primitives.xml
+  631: "VAV Balancer",         // CCT: balances airflow across multiple VAV boxes; Primitives.xml
   632: "Variable Speed Drive",
+  633: "Dual Duct Endpoint",   // CCT: Primitives.xml
+  634: "Address",              // CCT: Primitives.xml
+  640: "Local Display (RDDEV)", // CCT: SA bus field display (FX-DIS1710); Primitives.xml
   651: "NCE",
   658: "AV Load Extension",
   659: "BV Load Extension",
   660: "MV Load Extension",
   661: "Subscription Client",
+  670: "RIO DEV",              // CCT: SA bus remote I/O module device; Primitives.xml
+  671: "RAI",                  // CCT: remote analog input on SA bus expansion module; Primitives.xml
+  672: "RAO",                  // CCT: remote analog output on SA bus expansion module; Primitives.xml
+  673: "RBI",                  // CCT: remote binary input on SA bus expansion module; Primitives.xml
+  674: "RBO",                  // CCT: remote binary output on SA bus expansion module; Primitives.xml
   677: "Averaging",
+  701: "Device Enable",        // CCT: enable/disable based on conditions and overrides; Primitives.xml
+  702: "Equipment Interlock",  // CCT: permissive/interlock enforcement; Primitives.xml
+  704: "Device Alarm",         // CCT: monitors status, generates BACnet alarms; Primitives.xml
+  705: "Capacity Calc",        // CCT: available/required capacity for central plant; Primitives.xml
+  706: "Load Calc",            // CCT: thermal load from flow and delta-T; Primitives.xml
+  707: "Blocking Protection",  // CCT: prevents valve/damper hunting; Primitives.xml
+  708: "Pump Selector",        // CCT: lead/lag pump selection with runtime equalization; Primitives.xml
+  709: "Chiller Selector",     // CCT: chiller selection and staging; Primitives.xml
+  715: "Analog Override Check", // CCT: monitors AO for out-of-range conditions; Primitives.xml
+  716: "Binary Override Check", // CCT: monitors BO for feedback mismatch; Primitives.xml
+  721: "Lead Compensator",     // CCT: Primitives.xml
+  724: "Cooling Tower Control", // CCT: near-optimal open loop cooling tower; Primitives.xml
+  745: "Tower Selector",       // CCT: cooling tower fan/cell lead/lag selection; Primitives.xml
+  768: "Heat Exchanger Selector", // CCT: free-cooling/condenser loop HX selection; Primitives.xml
+  776: "Expression",           // CCT: user-defined math/logic expression; Primitives.xml
+  779: "Fault Manager",        // CCT: collects/prioritizes faults, manages alarms; Primitives.xml
+  798: "Global Sequencer",     // CCT: Primitives.xml
+  807: "Equipment Definition",
+  820: "BACnet Character String",
   699: "Summary Definition",
   717: "Xaml Graphic",
   751: "NAE-45L Engine",
@@ -911,7 +1116,13 @@ const CLASS_NAMES = {
   828: "BACnet Positive Integer",
   844: "Facility Graphic Asset",
   847: "Generic Archive Container",
+  862: "IP FEC",              // CCT: IP-enabled field controller root device object; Primitives.xml
   863: "IP Field Device",
+  880: "Moving Average Filter", // CCT: Primitives.xml
+  910: "SA Bus Device",       // CCT: SA bus device integration (room sensors, displays); Primitives.xml
+  916: "Device Stager",       // CCT: generic multi-unit equipment staging; Primitives.xml
+  917: "Boiler Stager",       // CCT: sequences boilers on/off, lead/lag rotation; Primitives.xml
+  918: "Chiller Stager",      // CCT: sequences chillers on/off, lead/lag rotation; Primitives.xml
   871: "SNE1100x",
   872: "SNE1050x",
   873: "NAE-45-1L (SMARC)",
@@ -1008,6 +1219,7 @@ const PROP_NAMES = {
   35: "Event Enable",
   44: "Firmware Version",
   45: "High Limit",
+  52: "Limit Enable",          // FDB tblAttribute; 50K occurrences in real archives
   56: "Local Date",
   57: "Local Time",
   58: "Location",
@@ -1094,6 +1306,7 @@ const PROP_NAMES = {
   661: "Display Precision",
   673: "Enabled",
   745: "BACnet Broadcast Receive Rate",
+  721: "Restore Command Priority",  // FDB tblAttribute; 52K occurrences
   750: "Host Name",
   756: "IEIEJ A Period",
   758: "Online Point Delay",
@@ -1191,6 +1404,8 @@ const PROP_NAMES = {
   2893: "Token Loop Time",
   2894: "Maximum Token Loop Time",
   3060: "Space Type",
+  3113: "Default Value",             // FDB tblAttribute (CCT property 3113)
+  3135: "Run In First Group",        // FDB tblAttribute; 68K occurrences — CCT execution scheduling
   3400: "Capture Changes",
   3510: "Temporary Status Expire Time",
   3511: "Status Launch Interval",
@@ -1206,6 +1421,7 @@ const PROP_NAMES = {
   4265: "Interface Value (LON)",
   4278: "XIF Present (LON)",
   4302: "BACnet Routing -Integrated Objects",
+  4306: "Stored Event Enable",       // FDB tblAttribute; 75K occurrences — most common unknown prop
   4307: "BACnet Routing - Mode",
   5731: "Staged Firmware Version",
   5733: "Staged Files",
@@ -1733,7 +1949,8 @@ function decodeValue(rawXml) {
     }
     if (tag === "enum") {
       const set = el.getAttribute("set") || "?";
-      return `enum[${set}]=${text}`;
+      const name = ENUM_SETS[set]?.[text];
+      return name ? name : `enum[${set}]=${text}`;
     }
     if (tag === "listof") {
       if (!el.children.length) return "(empty list)";
@@ -5807,7 +6024,9 @@ function extractPropEnum(obj, pid) {
   const raw = obj.properties?.[pid];
   if (!raw) return "";
   const m = raw.match(/<enum[^>]*set="(\d+)"[^>]*>(\d+)<\/enum>/);
-  return m ? `enum[${m[1]}]=${m[2]}` : "";
+  if (!m) return "";
+  const name = ENUM_SETS[m[1]]?.[m[2]];
+  return name ? name : `enum[${m[1]}]=${m[2]}`;
 }
 
 function decodePropValue(obj, pid) {
